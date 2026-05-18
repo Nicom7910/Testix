@@ -1,0 +1,18 @@
+[
+    {
+        "id": 1,
+        "nombre": "Administrador",
+        "email": "admin@email.com",
+        "password": "1234",
+        "rol": "ADMINISTRADOR",
+        "activo": true
+    },
+    {
+        "id": 2,
+        "nombre": "Nico",
+        "email": "nico@email.com",
+        "password": "1234",
+        "rol": "COMUN",
+        "activo": true
+    }
+]
