@@ -14,5 +14,15 @@
         "password": "1234",
         "rol": "COMUN",
         "activo": true
+    },
+    {
+        "id": 3,
+        "nombre": "Jose",
+        "apellido": "Martinez",
+        "email": "jose@gmail.com",
+        "telefono": "1193456930",
+        "password": "1234",
+        "rol": "COMUN",
+        "activo": true
     }
 ]

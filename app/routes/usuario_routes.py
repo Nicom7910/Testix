@@ -31,7 +31,9 @@ def crear_usuario(usuario: UsuarioCreate):
     nuevo_usuario = {
         "id": obtener_siguiente_id(usuarios),
         "nombre": usuario.nombre,
+        "apellido": usuario.apellido,
         "email": usuario.email,
+        "telefono": usuario.telefono,
         "password": usuario.password,
         "rol": usuario.rol,
         "activo": True
@@ -74,7 +76,9 @@ def modificar_usuario(usuario_id: int, datos_usuario: UsuarioUpdate):
     for usuario in usuarios:
         if usuario["id"] == usuario_id:
             usuario["nombre"] = datos_usuario.nombre
+            usuario["apellido"] = datos_usuario.apellido
             usuario["email"] = datos_usuario.email
+            usuario["telefono"] = datos_usuario.telefono
             usuario["password"] = datos_usuario.password
             usuario["rol"] = datos_usuario.rol
             usuario["activo"] = datos_usuario.activo
@@ -113,14 +117,16 @@ def login(datos: LoginRequest):
             and usuario["activo"] == True
         ):
             return {
-                "mensaje": "Login exitoso",
-                "usuario": {
-                    "id": usuario["id"],
-                    "nombre": usuario["nombre"],
-                    "email": usuario["email"],
-                    "rol": usuario["rol"]
-                }
+            "mensaje": "Login exitoso",
+            "usuario": {
+                "id": usuario["id"],
+                "nombre": usuario["nombre"],
+                "apellido": usuario.get("apellido", ""),
+                "email": usuario["email"],
+                "telefono": usuario.get("telefono", ""),
+                "rol": usuario["rol"]
             }
+        }
 
     raise HTTPException(
         status_code=401,

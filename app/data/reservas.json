@@ -1,52 +1,16 @@
 [
-    {
-        "id": 1,
-        "usuario_id": 2,
-        "cancha_id": 1,
-        "fecha": "2026-05-12",
-        "hora": "19:00:00",
-        "monto_total": 45000.0,
-        "sena": 22500.0,
-        "activa": false
-    },
-    {
-        "id": 2,
-        "usuario_id": 2,
-        "cancha_id": 1,
-        "fecha": "2026-05-21",
-        "hora": "16:00:00",
-        "monto_total": 45000.0,
-        "sena": 22500.0,
-        "activa": false
-    },
-    {
-        "id": 3,
-        "usuario_id": 2,
-        "cancha_id": 1,
-        "fecha": "2026-05-13",
-        "hora": "16:00:00",
-        "monto_total": 45000.0,
-        "sena": 22500.0,
-        "activa": false
-    },
-    {
-        "id": 4,
-        "usuario_id": 2,
-        "cancha_id": 1,
-        "fecha": "2026-05-13",
-        "hora": "16:00:00",
-        "monto_total": 45000.0,
-        "sena": 22500.0,
-        "activa": true
-    },
-    {
-        "id": 5,
-        "usuario_id": 2,
-        "cancha_id": 1,
-        "fecha": "2026-05-21",
-        "hora": "13:00:00",
-        "monto_total": 45000.0,
-        "sena": 22500.0,
-        "activa": true
-    }
+  {
+    "id": 3,
+    "usuario_id": 2,
+    "cancha_id": 1,
+    "fecha": "2026-05-20",
+    "hora_inicio": "14:00:00",
+    "hora_fin": "15:00:00",
+    "cantidad_horas": 1.0,
+    "monto_total": 45000.0,
+    "sena": 22500.0,
+    "activa": true,
+    "pagada": true,
+    "motivo_cancelacion": null
+  }
 ]

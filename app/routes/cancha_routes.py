@@ -93,3 +93,25 @@ def dar_baja_cancha(cancha_id: int):
             }
 
     raise HTTPException(status_code=404, detail="Cancha no encontrada")
+
+@router.patch("/{cancha_id}/precio")
+def modificar_precio_cancha(cancha_id: int, precio_por_hora: float):
+    canchas = leer_archivo(RUTA_CANCHAS)
+
+    if precio_por_hora <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="El precio por hora debe ser mayor a 0"
+        )
+
+    for cancha in canchas:
+        if cancha["id"] == cancha_id:
+            cancha["precio_por_hora"] = precio_por_hora
+            guardar_archivo(RUTA_CANCHAS, canchas)
+
+            return {
+                "mensaje": "Precio actualizado correctamente",
+                "cancha": cancha
+            }
+
+    raise HTTPException(status_code=404, detail="Cancha no encontrada")

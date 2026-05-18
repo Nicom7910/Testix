@@ -6,5 +6,13 @@
         "techada": false,
         "precio_por_hora": 45000.0,
         "activa": true
+    },
+    {
+        "id": 2,
+        "nombre": "Cancha 2",
+        "tipo_superficie": "Césped sintético",
+        "techada": true,
+        "precio_por_hora": 40000.0,
+        "activa": true
     }
 ]
