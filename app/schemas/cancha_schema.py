@@ -1,19 +1,23 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class CanchaCreate(BaseModel):
-    nombre: str = Field(..., min_length=1)
-    tipo_superficie: str = Field(..., min_length=1)
+    nombre: str
+    tipo_superficie: str
     techada: bool
-    precio_por_hora: float = Field(..., gt=0)
+    precio_por_hora: float
+    precio_diurno: float | None = None
+    precio_nocturno: float | None = None
 
 
 class CanchaUpdate(BaseModel):
-    nombre: str = Field(..., min_length=1)
-    tipo_superficie: str = Field(..., min_length=1)
+    nombre: str
+    tipo_superficie: str
     techada: bool
-    precio_por_hora: float = Field(..., gt=0)
-    activa: bool = True
+    precio_por_hora: float
+    activa: bool
+    precio_diurno: float | None = None
+    precio_nocturno: float | None = None
 
 
 class CanchaResponse(BaseModel):
@@ -23,3 +27,5 @@ class CanchaResponse(BaseModel):
     techada: bool
     precio_por_hora: float
     activa: bool
+    precio_diurno: float | None = None
+    precio_nocturno: float | None = None

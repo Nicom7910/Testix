@@ -1,8 +1,10 @@
-from fastapi import APIRouter, HTTPException
-from datetime import datetime
+from fastapi import APIRouter, HTTPException, Query
+from datetime import datetime, timedelta, date, time
+import re
 
 from app.schemas.reserva_schema import (
     ReservaCreate,
+    ReservaUpdateAdmin,
     ReservaResponse,
     CancelarReservaRequest,
     PagoReservaRequest
@@ -18,17 +20,369 @@ RUTA_RESERVAS = "app/data/reservas.json"
 RUTA_CANCHAS = "app/data/canchas.json"
 RUTA_USUARIOS = "app/data/usuarios.json"
 
+ROL_ADMINISTRADOR = "ADMINISTRADOR"
+
+ESTADO_RESERVA_PENDIENTE = "pendiente"
+ESTADO_RESERVA_CONFIRMADA = "confirmada"
+ESTADO_RESERVA_CANCELADA = "cancelada"
+ESTADO_RESERVA_FINALIZADA = "finalizada"
+
+ESTADO_PAGO_PENDIENTE = "pendiente"
+ESTADO_PAGO_PAGADO = "pagado"
+ESTADO_PAGO_RECHAZADO = "rechazado"
+
+ESTADO_DEVOLUCION_NO_APLICA = "no_aplica"
+ESTADO_DEVOLUCION_PENDIENTE = "pendiente"
+ESTADO_DEVOLUCION_REALIZADA = "realizada"
+
+ESTADOS_RESERVA_VALIDOS = [
+    ESTADO_RESERVA_PENDIENTE,
+    ESTADO_RESERVA_CONFIRMADA,
+    ESTADO_RESERVA_CANCELADA,
+    ESTADO_RESERVA_FINALIZADA
+]
+
+ESTADOS_PAGO_VALIDOS = [
+    ESTADO_PAGO_PENDIENTE,
+    ESTADO_PAGO_PAGADO,
+    ESTADO_PAGO_RECHAZADO
+]
+
+HORA_APERTURA = time(8, 0)
+HORA_CIERRE = time(23, 0)
+HORA_INICIO_NOCTURNO = time(18, 0)
+
+
+def obtener_usuario_por_id(usuario_id: int):
+    usuarios = leer_archivo(RUTA_USUARIOS)
+
+    for usuario in usuarios:
+        if usuario["id"] == usuario_id:
+            if usuario.get("activo", True) != True:
+                raise HTTPException(
+                    status_code=403,
+                    detail="El usuario está dado de baja"
+                )
+
+            return usuario
+
+    raise HTTPException(
+        status_code=404,
+        detail="Usuario no encontrado"
+    )
+
+
+def validar_administrador(admin_id: int):
+    usuario = obtener_usuario_por_id(admin_id)
+
+    if usuario.get("rol") != ROL_ADMINISTRADOR:
+        raise HTTPException(
+            status_code=403,
+            detail="No tiene permisos de administrador"
+        )
+
+    return usuario
+
+
+def convertir_hora(texto_hora: str):
+    try:
+        return datetime.strptime(texto_hora, "%H:%M:%S").time()
+    except ValueError:
+        return datetime.strptime(texto_hora, "%H:%M").time()
+
+
+def obtener_fecha_hora_inicio(reserva: dict):
+    fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
+    hora_inicio = convertir_hora(reserva["hora_inicio"])
+
+    return datetime.combine(fecha_reserva, hora_inicio)
+
+
+def obtener_fecha_hora_fin(reserva: dict):
+    fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
+    hora_fin = convertir_hora(reserva["hora_fin"])
+
+    return datetime.combine(fecha_reserva, hora_fin)
+
+
+def obtener_limite_pago(reserva: dict):
+    fecha_hora_inicio = obtener_fecha_hora_inicio(reserva)
+    return fecha_hora_inicio - timedelta(hours=24)
+
+
+def hay_superposicion(inicio_nuevo, fin_nuevo, inicio_existente, fin_existente):
+    return inicio_nuevo < fin_existente and fin_nuevo > inicio_existente
+
+
+def normalizar_cancha(cancha: dict):
+    if "precio_diurno" not in cancha or cancha["precio_diurno"] is None:
+        cancha["precio_diurno"] = cancha["precio_por_hora"]
+
+    if "precio_nocturno" not in cancha or cancha["precio_nocturno"] is None:
+        cancha["precio_nocturno"] = round(cancha["precio_por_hora"] * 1.2, 2)
+
+    return cancha
+
+
+def normalizar_reserva(reserva: dict):
+    if "estado_reserva" not in reserva:
+        if reserva.get("activa") == True:
+            reserva["estado_reserva"] = ESTADO_RESERVA_CONFIRMADA
+        elif reserva.get("motivo_cancelacion") is not None:
+            reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
+        else:
+            reserva["estado_reserva"] = ESTADO_RESERVA_PENDIENTE
+
+    if "estado_pago" not in reserva:
+        if reserva.get("pagada") == True:
+            reserva["estado_pago"] = ESTADO_PAGO_PAGADO
+        else:
+            reserva["estado_pago"] = ESTADO_PAGO_PENDIENTE
+
+    if "fecha_creacion" not in reserva:
+        reserva["fecha_creacion"] = None
+
+    if "motivo_cancelacion" not in reserva:
+        reserva["motivo_cancelacion"] = None
+
+    if "requiere_devolucion" not in reserva:
+        reserva["requiere_devolucion"] = False
+
+    if "monto_devolucion" not in reserva:
+        reserva["monto_devolucion"] = 0
+
+    if "estado_devolucion" not in reserva:
+        reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
+    reserva["activa"] = reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA
+    reserva["pagada"] = reserva["estado_pago"] == ESTADO_PAGO_PAGADO
+
+    return reserva
+
+
+def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: time):
+    hoy = date.today()
+
+    if fecha_reserva < hoy:
+        raise HTTPException(
+            status_code=400,
+            detail="No se pueden crear reservas con fecha anterior a la actual"
+        )
+
+    if hora_fin <= hora_inicio:
+        raise HTTPException(
+            status_code=400,
+            detail="La hora de fin debe ser mayor a la hora de inicio"
+        )
+
+    if hora_inicio < HORA_APERTURA or hora_fin > HORA_CIERRE:
+        raise HTTPException(
+            status_code=400,
+            detail="El horario permitido para reservas es de 08:00 a 23:00"
+        )
+
+
+def validar_pago(datos_pago: PagoReservaRequest):
+    numero = datos_pago.numero_tarjeta.replace(" ", "").replace("-", "")
+
+    if not numero.isdigit() or len(numero) != 16:
+        raise HTTPException(
+            status_code=400,
+            detail="El número de tarjeta debe tener 16 dígitos numéricos"
+        )
+
+    if datos_pago.nombre_titular.strip() == "":
+        raise HTTPException(
+            status_code=400,
+            detail="Debe ingresar el nombre del titular"
+        )
+
+    if not re.match(r"^(0[1-9]|1[0-2])\/\d{2}$", datos_pago.vencimiento.strip()):
+        raise HTTPException(
+            status_code=400,
+            detail="El vencimiento debe tener formato MM/AA"
+        )
+
+    mes, anio = datos_pago.vencimiento.strip().split("/")
+    mes = int(mes)
+    anio = int("20" + anio)
+
+    hoy = datetime.now()
+    fecha_vencimiento = datetime(anio, mes, 1)
+
+    if fecha_vencimiento.year < hoy.year or (
+        fecha_vencimiento.year == hoy.year
+        and fecha_vencimiento.month < hoy.month
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="La tarjeta se encuentra vencida"
+        )
+
+    codigo = datos_pago.codigo_seguridad.strip()
+
+    if not codigo.isdigit() or len(codigo) not in [3, 4]:
+        raise HTTPException(
+            status_code=400,
+            detail="El código de seguridad debe tener 3 o 4 dígitos"
+        )
+
+
+def actualizar_reservas_por_tiempo(reservas: list):
+    ahora = datetime.now()
+    hubo_cambios = False
+
+    for reserva in reservas:
+        reserva_original = reserva.copy()
+        normalizar_reserva(reserva)
+
+        if reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA:
+            fecha_hora_fin = obtener_fecha_hora_fin(reserva)
+
+            if fecha_hora_fin < ahora:
+                reserva["estado_reserva"] = ESTADO_RESERVA_FINALIZADA
+                reserva["activa"] = False
+
+        if (
+            reserva["estado_reserva"] == ESTADO_RESERVA_PENDIENTE
+            and reserva["estado_pago"] != ESTADO_PAGO_PAGADO
+        ):
+            limite_pago = obtener_limite_pago(reserva)
+
+            if ahora > limite_pago:
+                reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
+                reserva["activa"] = False
+                reserva["motivo_cancelacion"] = (
+                    "Cancelada automáticamente por no pagar la seña "
+                    "hasta 24 horas antes del turno"
+                )
+
+        if reserva != reserva_original:
+            hubo_cambios = True
+
+    return hubo_cambios
+
+
+def obtener_reservas_actualizadas():
+    reservas = leer_archivo(RUTA_RESERVAS)
+
+    if actualizar_reservas_por_tiempo(reservas):
+        guardar_archivo(RUTA_RESERVAS, reservas)
+
+    return reservas
+
+
+def obtener_cancha_activa_por_id(cancha_id: int):
+    canchas = leer_archivo(RUTA_CANCHAS)
+
+    for cancha in canchas:
+        if cancha["id"] == cancha_id:
+            normalizar_cancha(cancha)
+
+            if cancha["activa"] != True:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La cancha seleccionada está deshabilitada"
+                )
+
+            return cancha
+
+    raise HTTPException(
+        status_code=404,
+        detail="La cancha no existe"
+    )
+
+
+def calcular_importes(cancha: dict, fecha_reserva, hora_inicio, hora_fin):
+    validar_fecha_y_horario(fecha_reserva, hora_inicio, hora_fin)
+
+    inicio_datetime = datetime.combine(fecha_reserva, hora_inicio)
+    fin_datetime = datetime.combine(fecha_reserva, hora_fin)
+
+    cantidad_horas = 0
+    monto_total = 0
+    cursor = inicio_datetime
+
+    while cursor < fin_datetime:
+        siguiente_tramo = cursor + timedelta(minutes=30)
+
+        if siguiente_tramo > fin_datetime:
+            siguiente_tramo = fin_datetime
+
+        horas_tramo = (siguiente_tramo - cursor).total_seconds() / 3600
+
+        if cursor.time() >= HORA_INICIO_NOCTURNO:
+            precio = cancha["precio_nocturno"]
+        else:
+            precio = cancha["precio_diurno"]
+
+        monto_total += precio * horas_tramo
+        cantidad_horas += horas_tramo
+
+        cursor = siguiente_tramo
+
+    sena = monto_total * 0.5
+
+    return cantidad_horas, round(monto_total, 2), round(sena, 2)
+
+
+def validar_superposicion_reserva(
+    reservas: list,
+    reserva_id_actual: int | None,
+    cancha_id: int,
+    fecha_reserva: str,
+    hora_inicio,
+    hora_fin
+):
+    for reserva in reservas:
+        normalizar_reserva(reserva)
+
+        if reserva_id_actual is not None and reserva["id"] == reserva_id_actual:
+            continue
+
+        if (
+            reserva["cancha_id"] == cancha_id
+            and reserva["fecha"] == fecha_reserva
+            and reserva["estado_reserva"] in [
+                ESTADO_RESERVA_PENDIENTE,
+                ESTADO_RESERVA_CONFIRMADA
+            ]
+        ):
+            reserva_inicio_existente = convertir_hora(reserva["hora_inicio"])
+            reserva_fin_existente = convertir_hora(reserva["hora_fin"])
+
+            if hay_superposicion(
+                hora_inicio,
+                hora_fin,
+                reserva_inicio_existente,
+                reserva_fin_existente
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail="La cancha ya tiene una reserva en ese rango horario"
+                )
+
+
+def aplicar_datos_de_devolucion(reserva: dict):
+    if reserva["estado_pago"] == ESTADO_PAGO_PAGADO:
+        reserva["requiere_devolucion"] = True
+        reserva["monto_devolucion"] = reserva.get("sena", 0)
+        reserva["estado_devolucion"] = ESTADO_DEVOLUCION_PENDIENTE
+    else:
+        reserva["requiere_devolucion"] = False
+        reserva["monto_devolucion"] = 0
+        reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
 
 @router.post("/", response_model=ReservaResponse)
 def crear_reserva(reserva: ReservaCreate):
-    reservas = leer_archivo(RUTA_RESERVAS)
-    canchas = leer_archivo(RUTA_CANCHAS)
+    reservas = obtener_reservas_actualizadas()
     usuarios = leer_archivo(RUTA_USUARIOS)
 
     usuario_encontrado = None
 
     for usuario in usuarios:
-        if usuario["id"] == reserva.usuario_id and usuario["activo"] == True:
+        if usuario["id"] == reserva.usuario_id and usuario.get("activo", True) == True:
             usuario_encontrado = usuario
 
     if usuario_encontrado is None:
@@ -37,67 +391,26 @@ def crear_reserva(reserva: ReservaCreate):
             detail="El usuario no existe o está dado de baja"
         )
 
-    cancha_encontrada = None
-
-    for cancha in canchas:
-        if cancha["id"] == reserva.cancha_id and cancha["activa"] == True:
-            cancha_encontrada = cancha
-
-    if cancha_encontrada is None:
-        raise HTTPException(
-            status_code=404,
-            detail="La cancha no existe o no está disponible"
-        )
+    cancha_encontrada = obtener_cancha_activa_por_id(reserva.cancha_id)
 
     hora_inicio = reserva.hora_inicio
     hora_fin = reserva.hora_fin
 
-    if hora_fin <= hora_inicio:
-        raise HTTPException(
-            status_code=400,
-            detail="La hora de fin debe ser mayor a la hora de inicio"
-        )
+    cantidad_horas, monto_total, sena = calcular_importes(
+        cancha_encontrada,
+        reserva.fecha,
+        hora_inicio,
+        hora_fin
+    )
 
-    inicio_datetime = datetime.combine(reserva.fecha, hora_inicio)
-    fin_datetime = datetime.combine(reserva.fecha, hora_fin)
-
-    diferencia = fin_datetime - inicio_datetime
-    cantidad_horas = diferencia.total_seconds() / 3600
-
-    for r in reservas:
-        if (
-            r["cancha_id"] == reserva.cancha_id
-            and r["fecha"] == str(reserva.fecha)
-            and r["activa"] == True
-        ):
-
-            if "hora_inicio" not in r or "hora_fin" not in r:
-                continue
-
-            reserva_inicio_existente = datetime.strptime(
-                r["hora_inicio"],
-                "%H:%M:%S"
-            ).time()
-
-            reserva_fin_existente = datetime.strptime(
-                r["hora_fin"],
-                "%H:%M:%S"
-            ).time()
-
-            hay_superposicion = (
-                hora_inicio < reserva_fin_existente
-                and hora_fin > reserva_inicio_existente
-            )
-
-            if hay_superposicion:
-                raise HTTPException(
-                    status_code=400,
-                    detail="La cancha ya está reservada en ese rango horario"
-                )
-
-    precio_por_hora = cancha_encontrada["precio_por_hora"]
-    monto_total = precio_por_hora * cantidad_horas
-    sena = monto_total * 0.5
+    validar_superposicion_reserva(
+        reservas=reservas,
+        reserva_id_actual=None,
+        cancha_id=reserva.cancha_id,
+        fecha_reserva=str(reserva.fecha),
+        hora_inicio=hora_inicio,
+        hora_fin=hora_fin
+    )
 
     nueva_reserva = {
         "id": obtener_siguiente_id(reservas),
@@ -109,9 +422,15 @@ def crear_reserva(reserva: ReservaCreate):
         "cantidad_horas": cantidad_horas,
         "monto_total": monto_total,
         "sena": sena,
+        "estado_reserva": ESTADO_RESERVA_PENDIENTE,
+        "estado_pago": ESTADO_PAGO_PENDIENTE,
         "activa": False,
         "pagada": False,
-        "motivo_cancelacion": None
+        "motivo_cancelacion": None,
+        "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "requiere_devolucion": False,
+        "monto_devolucion": 0,
+        "estado_devolucion": ESTADO_DEVOLUCION_NO_APLICA
     }
 
     reservas.append(nueva_reserva)
@@ -121,35 +440,188 @@ def crear_reserva(reserva: ReservaCreate):
 
 
 @router.get("/", response_model=list[ReservaResponse])
-def listar_reservas():
-    reservas = leer_archivo(RUTA_RESERVAS)
+def listar_reservas(admin_id: int = Query(...)):
+    validar_administrador(admin_id)
+
+    reservas = obtener_reservas_actualizadas()
     return reservas
 
 
 @router.get("/activas", response_model=list[ReservaResponse])
-def listar_reservas_activas():
-    reservas = leer_archivo(RUTA_RESERVAS)
+def listar_reservas_activas(admin_id: int = Query(...)):
+    validar_administrador(admin_id)
 
-    reservas_activas = []
+    reservas = obtener_reservas_actualizadas()
+    return [
+        reserva for reserva in reservas
+        if reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA
+    ]
 
-    for reserva in reservas:
-        if reserva["activa"] == True:
-            reservas_activas.append(reserva)
 
-    return reservas_activas
+@router.get("/pendientes", response_model=list[ReservaResponse])
+def listar_reservas_pendientes(admin_id: int = Query(...)):
+    validar_administrador(admin_id)
+
+    reservas = obtener_reservas_actualizadas()
+    return [
+        reserva for reserva in reservas
+        if reserva["estado_reserva"] == ESTADO_RESERVA_PENDIENTE
+    ]
+
+
+@router.get("/canceladas", response_model=list[ReservaResponse])
+def listar_reservas_canceladas(admin_id: int = Query(...)):
+    validar_administrador(admin_id)
+
+    reservas = obtener_reservas_actualizadas()
+    return [
+        reserva for reserva in reservas
+        if reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA
+    ]
+
+
+@router.get("/pasadas", response_model=list[ReservaResponse])
+def listar_reservas_pasadas(admin_id: int = Query(...)):
+    validar_administrador(admin_id)
+
+    reservas = obtener_reservas_actualizadas()
+    return [
+        reserva for reserva in reservas
+        if reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA
+    ]
 
 
 @router.get("/usuario/{usuario_id}/activas", response_model=list[ReservaResponse])
 def listar_reservas_activas_usuario(usuario_id: int):
-    reservas = leer_archivo(RUTA_RESERVAS)
+    reservas = obtener_reservas_actualizadas()
 
-    reservas_usuario = []
+    return [
+        reserva for reserva in reservas
+        if reserva["usuario_id"] == usuario_id
+        and reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA
+    ]
+
+
+@router.get("/usuario/{usuario_id}/pendientes", response_model=list[ReservaResponse])
+def listar_reservas_pendientes_usuario(usuario_id: int):
+    reservas = obtener_reservas_actualizadas()
+
+    return [
+        reserva for reserva in reservas
+        if reserva["usuario_id"] == usuario_id
+        and reserva["estado_reserva"] == ESTADO_RESERVA_PENDIENTE
+    ]
+
+
+@router.get("/usuario/{usuario_id}/canceladas", response_model=list[ReservaResponse])
+def listar_reservas_canceladas_usuario(usuario_id: int):
+    reservas = obtener_reservas_actualizadas()
+
+    return [
+        reserva for reserva in reservas
+        if reserva["usuario_id"] == usuario_id
+        and reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA
+    ]
+
+
+@router.get("/usuario/{usuario_id}/pasadas", response_model=list[ReservaResponse])
+def listar_reservas_pasadas_usuario(usuario_id: int):
+    reservas = obtener_reservas_actualizadas()
+
+    return [
+        reserva for reserva in reservas
+        if reserva["usuario_id"] == usuario_id
+        and reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA
+    ]
+
+
+@router.get("/usuario/{usuario_id}/historial", response_model=list[ReservaResponse])
+def listar_historial_usuario(usuario_id: int):
+    reservas = obtener_reservas_actualizadas()
+
+    return [
+        reserva for reserva in reservas
+        if reserva["usuario_id"] == usuario_id
+    ]
+
+
+@router.put("/{reserva_id}", response_model=ReservaResponse)
+def modificar_reserva_admin(
+    reserva_id: int,
+    datos_reserva: ReservaUpdateAdmin,
+    admin_id: int = Query(...)
+):
+    validar_administrador(admin_id)
+
+    reservas = obtener_reservas_actualizadas()
+
+    if datos_reserva.estado_reserva not in ESTADOS_RESERVA_VALIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail="Estado de reserva inválido"
+        )
+
+    if datos_reserva.estado_pago not in ESTADOS_PAGO_VALIDOS:
+        raise HTTPException(
+            status_code=400,
+            detail="Estado de pago inválido"
+        )
+
+    cancha_encontrada = obtener_cancha_activa_por_id(datos_reserva.cancha_id)
+
+    hora_inicio = datos_reserva.hora_inicio
+    hora_fin = datos_reserva.hora_fin
+
+    cantidad_horas, monto_total, sena = calcular_importes(
+        cancha_encontrada,
+        datos_reserva.fecha,
+        hora_inicio,
+        hora_fin
+    )
+
+    if datos_reserva.estado_reserva in [
+        ESTADO_RESERVA_PENDIENTE,
+        ESTADO_RESERVA_CONFIRMADA
+    ]:
+        validar_superposicion_reserva(
+            reservas=reservas,
+            reserva_id_actual=reserva_id,
+            cancha_id=datos_reserva.cancha_id,
+            fecha_reserva=str(datos_reserva.fecha),
+            hora_inicio=hora_inicio,
+            hora_fin=hora_fin
+        )
 
     for reserva in reservas:
-        if reserva["usuario_id"] == usuario_id and reserva["activa"] == True:
-            reservas_usuario.append(reserva)
+        normalizar_reserva(reserva)
 
-    return reservas_usuario
+        if reserva["id"] == reserva_id:
+            reserva["cancha_id"] = datos_reserva.cancha_id
+            reserva["fecha"] = str(datos_reserva.fecha)
+            reserva["hora_inicio"] = hora_inicio.strftime("%H:%M:%S")
+            reserva["hora_fin"] = hora_fin.strftime("%H:%M:%S")
+            reserva["cantidad_horas"] = cantidad_horas
+            reserva["monto_total"] = monto_total
+            reserva["sena"] = sena
+            reserva["estado_reserva"] = datos_reserva.estado_reserva
+            reserva["estado_pago"] = datos_reserva.estado_pago
+
+            reserva["activa"] = datos_reserva.estado_reserva == ESTADO_RESERVA_CONFIRMADA
+            reserva["pagada"] = datos_reserva.estado_pago == ESTADO_PAGO_PAGADO
+
+            if datos_reserva.estado_reserva == ESTADO_RESERVA_CANCELADA:
+                aplicar_datos_de_devolucion(reserva)
+            else:
+                reserva["motivo_cancelacion"] = None
+                reserva["requiere_devolucion"] = False
+                reserva["monto_devolucion"] = 0
+                reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
+            guardar_archivo(RUTA_RESERVAS, reservas)
+
+            return reserva
+
+    raise HTTPException(status_code=404, detail="Reserva no encontrada")
 
 
 @router.put("/{reserva_id}/pagar", response_model=ReservaResponse)
@@ -157,30 +629,73 @@ def pagar_sena_reserva(
     reserva_id: int,
     datos_pago: PagoReservaRequest
 ):
-    reservas = leer_archivo(RUTA_RESERVAS)
+    reservas = obtener_reservas_actualizadas()
+    ahora = datetime.now()
 
-    if (
-        datos_pago.numero_tarjeta.strip() == ""
-        or datos_pago.nombre_titular.strip() == ""
-        or datos_pago.vencimiento.strip() == ""
-        or datos_pago.codigo_seguridad.strip() == ""
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="Debe completar todos los datos de pago"
-        )
+    validar_pago(datos_pago)
 
     for reserva in reservas:
+        normalizar_reserva(reserva)
+
         if reserva["id"] == reserva_id:
 
-            if reserva["pagada"] == True:
+            if reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se puede pagar una reserva cancelada"
+                )
+
+            if reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se puede pagar una reserva finalizada"
+                )
+
+            if reserva["estado_pago"] == ESTADO_PAGO_PAGADO:
                 raise HTTPException(
                     status_code=400,
                     detail="La reserva ya fue pagada"
                 )
 
+            limite_pago = obtener_limite_pago(reserva)
+
+            if ahora > limite_pago:
+                reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
+                reserva["activa"] = False
+                reserva["motivo_cancelacion"] = (
+                    "Cancelada automáticamente por no pagar la seña "
+                    "hasta 24 horas antes del turno"
+                )
+
+                guardar_archivo(RUTA_RESERVAS, reservas)
+
+                raise HTTPException(
+                    status_code=400,
+                    detail="El plazo para pagar la seña venció. Debía pagarse al menos 24 horas antes de la reserva."
+                )
+
+            numero = datos_pago.numero_tarjeta.replace(" ", "").replace("-", "")
+
+            if numero.startswith("0000"):
+                reserva["estado_pago"] = ESTADO_PAGO_RECHAZADO
+                reserva["estado_reserva"] = ESTADO_RESERVA_PENDIENTE
+                reserva["pagada"] = False
+                reserva["activa"] = False
+
+                guardar_archivo(RUTA_RESERVAS, reservas)
+
+                raise HTTPException(
+                    status_code=400,
+                    detail="El pago fue rechazado"
+                )
+
+            reserva["estado_pago"] = ESTADO_PAGO_PAGADO
+            reserva["estado_reserva"] = ESTADO_RESERVA_CONFIRMADA
             reserva["pagada"] = True
             reserva["activa"] = True
+            reserva["requiere_devolucion"] = False
+            reserva["monto_devolucion"] = 0
+            reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
 
             guardar_archivo(RUTA_RESERVAS, reservas)
 
@@ -192,9 +707,12 @@ def pagar_sena_reserva(
 @router.put("/{reserva_id}/cancelar")
 def cancelar_reserva(
     reserva_id: int,
-    datos: CancelarReservaRequest
+    datos: CancelarReservaRequest,
+    usuario_id_solicitante: int = Query(...)
 ):
-    reservas = leer_archivo(RUTA_RESERVAS)
+    reservas = obtener_reservas_actualizadas()
+
+    usuario_solicitante = obtener_usuario_por_id(usuario_id_solicitante)
 
     if datos.motivo_cancelacion.strip() == "":
         raise HTTPException(
@@ -203,16 +721,36 @@ def cancelar_reserva(
         )
 
     for reserva in reservas:
+        normalizar_reserva(reserva)
+
         if reserva["id"] == reserva_id:
 
-            if reserva["activa"] == False and reserva["pagada"] == True:
+            es_admin = usuario_solicitante.get("rol") == ROL_ADMINISTRADOR
+            es_duenio = reserva["usuario_id"] == usuario_id_solicitante
+
+            if not es_admin and not es_duenio:
+                raise HTTPException(
+                    status_code=403,
+                    detail="No tiene permisos para cancelar esta reserva"
+                )
+
+            if reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA:
                 raise HTTPException(
                     status_code=400,
                     detail="La reserva ya se encuentra cancelada"
                 )
 
+            if reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No se puede cancelar una reserva finalizada"
+                )
+
+            reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
             reserva["activa"] = False
             reserva["motivo_cancelacion"] = datos.motivo_cancelacion
+
+            aplicar_datos_de_devolucion(reserva)
 
             guardar_archivo(RUTA_RESERVAS, reservas)
 

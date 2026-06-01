@@ -1,6 +1,6 @@
 import streamlit as st
 import requests
-from datetime import date
+from datetime import date, datetime
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -19,7 +19,10 @@ if "reserva_pendiente" not in st.session_state:
 def login(email, password):
     return requests.post(
         f"{API_URL}/usuarios/login",
-        json={"email": email, "password": password},
+        json={
+            "email": email,
+            "password": password
+        },
         timeout=5
     )
 
@@ -39,50 +42,106 @@ def registrar_usuario(nombre, apellido, email, telefono, password):
     )
 
 
-def obtener_canchas_disponibles():
-    respuesta = requests.get(f"{API_URL}/canchas/disponibles", timeout=5)
+def obtener_canchas_disponibles(fecha=None, hora_inicio=None, hora_fin=None):
+    params = {}
+
+    if fecha is not None and hora_inicio is not None and hora_fin is not None:
+        params = {
+            "fecha": str(fecha),
+            "hora_inicio": hora_inicio,
+            "hora_fin": hora_fin
+        }
+
+    respuesta = requests.get(
+        f"{API_URL}/canchas/disponibles",
+        params=params,
+        timeout=5
+    )
     respuesta.raise_for_status()
     return respuesta.json()
 
 
 def obtener_todas_las_canchas():
-    respuesta = requests.get(f"{API_URL}/canchas/", timeout=5)
+    respuesta = requests.get(
+        f"{API_URL}/canchas/",
+        timeout=5
+    )
     respuesta.raise_for_status()
     return respuesta.json()
 
 
-def crear_cancha(nombre, superficie, techada, precio):
+def crear_cancha(
+    nombre,
+    superficie,
+    techada,
+    precio_por_hora,
+    precio_diurno,
+    precio_nocturno,
+    admin_id
+):
     return requests.post(
         f"{API_URL}/canchas/",
+        params={
+            "admin_id": admin_id
+        },
         json={
             "nombre": nombre,
             "tipo_superficie": superficie,
             "techada": techada,
-            "precio_por_hora": precio
+            "precio_por_hora": precio_por_hora,
+            "precio_diurno": precio_diurno,
+            "precio_nocturno": precio_nocturno
         },
         timeout=5
     )
 
 
-def eliminar_cancha(cancha_id):
-    return requests.delete(f"{API_URL}/canchas/{cancha_id}", timeout=5)
-
-
-def modificar_precio_cancha(cancha_id, precio):
-    return requests.patch(
-        f"{API_URL}/canchas/{cancha_id}/precio",
-        params={"precio_por_hora": precio},
+def modificar_cancha(
+    cancha_id,
+    nombre,
+    superficie,
+    techada,
+    precio_por_hora,
+    precio_diurno,
+    precio_nocturno,
+    activa,
+    admin_id
+):
+    return requests.put(
+        f"{API_URL}/canchas/{cancha_id}",
+        params={
+            "admin_id": admin_id
+        },
+        json={
+            "nombre": nombre,
+            "tipo_superficie": superficie,
+            "techada": techada,
+            "precio_por_hora": precio_por_hora,
+            "precio_diurno": precio_diurno,
+            "precio_nocturno": precio_nocturno,
+            "activa": activa
+        },
         timeout=5
     )
 
 
-def realizar_reserva(usuario_id, cancha_id, fecha, hora_inicio, hora_fin):
+def eliminar_cancha(cancha_id, admin_id):
+    return requests.delete(
+        f"{API_URL}/canchas/{cancha_id}",
+        params={
+            "admin_id": admin_id
+        },
+        timeout=5
+    )
+
+
+def realizar_reserva(usuario_id, cancha_id, fecha_reserva, hora_inicio, hora_fin):
     return requests.post(
         f"{API_URL}/reservas/",
         json={
             "usuario_id": usuario_id,
             "cancha_id": cancha_id,
-            "fecha": str(fecha),
+            "fecha": str(fecha_reserva),
             "hora_inicio": hora_inicio,
             "hora_fin": hora_fin
         },
@@ -118,18 +177,72 @@ def obtener_reservas_activas_usuario(usuario_id):
     return respuesta.json()
 
 
-def obtener_reservas_activas():
+def obtener_reservas_pendientes_usuario(usuario_id):
     respuesta = requests.get(
-        f"{API_URL}/reservas/activas",
+        f"{API_URL}/reservas/usuario/{usuario_id}/pendientes",
         timeout=5
     )
     respuesta.raise_for_status()
     return respuesta.json()
 
 
-def cancelar_reserva_usuario(reserva_id):
+def obtener_reservas_canceladas_usuario(usuario_id):
+    respuesta = requests.get(
+        f"{API_URL}/reservas/usuario/{usuario_id}/canceladas",
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def obtener_reservas_pasadas_usuario(usuario_id):
+    respuesta = requests.get(
+        f"{API_URL}/reservas/usuario/{usuario_id}/pasadas",
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def obtener_historial_reservas_usuario(usuario_id):
+    respuesta = requests.get(
+        f"{API_URL}/reservas/usuario/{usuario_id}/historial",
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def obtener_reservas_activas(admin_id):
+    respuesta = requests.get(
+        f"{API_URL}/reservas/activas",
+        params={
+            "admin_id": admin_id
+        },
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def obtener_reservas_pendientes_admin(admin_id):
+    respuesta = requests.get(
+        f"{API_URL}/reservas/pendientes",
+        params={
+            "admin_id": admin_id
+        },
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def cancelar_reserva_usuario(reserva_id, usuario_id):
     return requests.put(
         f"{API_URL}/reservas/{reserva_id}/cancelar",
+        params={
+            "usuario_id_solicitante": usuario_id
+        },
         json={
             "motivo_cancelacion": "Cancelada por el usuario"
         },
@@ -137,14 +250,244 @@ def cancelar_reserva_usuario(reserva_id):
     )
 
 
-def cancelar_reserva_con_motivo(reserva_id, motivo):
+def cancelar_reserva_con_motivo(reserva_id, motivo, admin_id):
     return requests.put(
         f"{API_URL}/reservas/{reserva_id}/cancelar",
+        params={
+            "usuario_id_solicitante": admin_id
+        },
         json={
             "motivo_cancelacion": motivo
         },
         timeout=5
     )
+
+
+def obtener_reporte_general(admin_id, fecha_desde=None, fecha_hasta=None):
+    params = {
+        "admin_id": admin_id
+    }
+
+    if fecha_desde is not None:
+        params["fecha_desde"] = str(fecha_desde)
+
+    if fecha_hasta is not None:
+        params["fecha_hasta"] = str(fecha_hasta)
+
+    respuesta = requests.get(
+        f"{API_URL}/reportes/general",
+        params=params,
+        timeout=5
+    )
+    respuesta.raise_for_status()
+    return respuesta.json()
+
+
+def mostrar_reserva(reserva):
+    st.write(f"Reserva N° {reserva['id']}")
+    st.write(f"Usuario ID: {reserva['usuario_id']}")
+    st.write(f"Cancha ID: {reserva['cancha_id']}")
+    st.write(f"Fecha: {reserva['fecha']}")
+    st.write(f"Horario: {reserva['hora_inicio']} a {reserva['hora_fin']}")
+    st.write(f"Estado reserva: {reserva['estado_reserva']}")
+    st.write(f"Estado pago: {reserva['estado_pago']}")
+    st.write(f"Cantidad de horas: {reserva['cantidad_horas']}")
+    st.write(f"Monto total: ${reserva['monto_total']}")
+    st.write(f"Seña 50%: ${reserva['sena']}")
+
+    if reserva.get("motivo_cancelacion") is not None:
+        st.write(f"Motivo cancelación: {reserva['motivo_cancelacion']}")
+
+    if reserva.get("fecha_creacion") is not None:
+        st.write(f"Fecha de creación: {reserva['fecha_creacion']}")
+
+    if reserva.get("requiere_devolucion") == True:
+        st.warning(
+            f"Requiere devolución: ${reserva.get('monto_devolucion', 0)} | "
+            f"Estado devolución: {reserva.get('estado_devolucion', 'pendiente')}"
+        )
+
+
+def mostrar_reportes_admin(usuario):
+    st.header("Reportes")
+
+    tipo_reporte = st.selectbox(
+        "Seleccionar tipo de reporte",
+        [
+            "Reporte de reservas",
+            "Reporte general"
+        ],
+        key="admin_tipo_reporte"
+    )
+
+    usar_filtro = st.checkbox(
+        "Filtrar reportes por fecha",
+        key="admin_reporte_usar_filtro"
+    )
+
+    fecha_desde = None
+    fecha_hasta = None
+
+    if usar_filtro:
+        fecha_desde = st.date_input(
+            "Fecha desde",
+            value=date.today(),
+            key="admin_reporte_fecha_desde"
+        )
+
+        fecha_hasta = st.date_input(
+            "Fecha hasta",
+            value=date.today(),
+            key="admin_reporte_fecha_hasta"
+        )
+
+    if st.button("Generar reporte", key="btn_generar_reporte_admin"):
+        try:
+            reporte = obtener_reporte_general(
+                usuario["id"],
+                fecha_desde,
+                fecha_hasta
+            )
+        except requests.exceptions.RequestException as error:
+            try:
+                st.error(error.response.json()["detail"])
+            except Exception:
+                st.error("No se pudo generar el reporte")
+        else:
+            if tipo_reporte == "Reporte de reservas":
+                st.subheader("Reporte de reservas")
+
+                detalle_reservas = reporte.get("detalle_reservas", [])
+
+                if len(detalle_reservas) == 0:
+                    st.info("No hay reservas para mostrar en el reporte.")
+                else:
+                    st.table(
+                        [
+                            {
+                                "Cancha": reserva["cancha"],
+                                "Fecha": reserva["fecha"],
+                                "Horario": reserva["horario"],
+                                "Cliente": reserva["cliente"],
+                                "Estado reserva": reserva["estado_reserva"],
+                                "Estado pago": reserva["estado_pago"],
+                                "Monto total": reserva["monto_total"],
+                                "Seña": reserva["seña"]
+                            }
+                            for reserva in detalle_reservas
+                        ]
+                    )
+
+            if tipo_reporte == "Reporte general":
+                resumen = reporte["resumen"]
+
+                st.subheader("Resumen general")
+
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    st.metric("Total reservas", resumen["total_reservas"])
+
+                with col2:
+                    st.metric("Pendientes", resumen["reservas_pendientes"])
+
+                with col3:
+                    st.metric(
+                        "% cancelación",
+                        f"{resumen['porcentaje_cancelacion']}%"
+                    )
+
+                col4, col5 = st.columns(2)
+
+                with col4:
+                    st.metric(
+                        "Ingresos potenciales",
+                        f"${resumen['ingresos_potenciales']}"
+                    )
+
+                with col5:
+                    st.metric(
+                        "Ingresos cobrados",
+                        f"${resumen['ingresos_cobrados']}"
+                    )
+
+                col6, col7 = st.columns(2)
+
+                with col6:
+                    st.metric(
+                        "Señas pendientes",
+                        f"${resumen['senas_pendientes']}"
+                    )
+
+                with col7:
+                    st.metric(
+                        "Devoluciones pendientes",
+                        f"${resumen['devoluciones_pendientes']}"
+                    )
+
+                st.subheader("Reservas por estado")
+
+                reservas_por_estado = reporte["reservas_por_estado"]
+
+                st.table(
+                    [
+                        {
+                            "Estado": "Pendiente",
+                            "Cantidad": reservas_por_estado["pendiente"]
+                        },
+                        {
+                            "Estado": "Confirmada",
+                            "Cantidad": reservas_por_estado["confirmada"]
+                        },
+                        {
+                            "Estado": "Cancelada",
+                            "Cantidad": reservas_por_estado["cancelada"]
+                        },
+                        {
+                            "Estado": "Finalizada",
+                            "Cantidad": reservas_por_estado["finalizada"]
+                        }
+                    ]
+                )
+
+                st.subheader("Pagos por estado")
+
+                pagos_por_estado = reporte["pagos_por_estado"]
+
+                st.table(
+                    [
+                        {
+                            "Estado": "Pendiente",
+                            "Cantidad": pagos_por_estado["pendiente"]
+                        },
+                        {
+                            "Estado": "Pagado",
+                            "Cantidad": pagos_por_estado["pagado"]
+                        },
+                        {
+                            "Estado": "Rechazado",
+                            "Cantidad": pagos_por_estado["rechazado"]
+                        }
+                    ]
+                )
+
+                st.subheader("Ocupación por cancha")
+
+                ocupacion = reporte["ocupacion_por_cancha"]
+
+                if len(ocupacion) == 0:
+                    st.info("No hay datos de ocupación para mostrar.")
+                else:
+                    st.table(ocupacion)
+
+                st.subheader("Horarios más solicitados")
+
+                horarios = reporte["horarios_mas_solicitados"]
+
+                if len(horarios) == 0:
+                    st.info("No hay horarios solicitados para mostrar.")
+                else:
+                    st.table(horarios)
 
 
 HORARIOS = [
@@ -166,6 +509,12 @@ HORARIOS = [
     "23:00"
 ]
 
+TIPOS_SUPERFICIE = [
+    "Polvo de ladrillo",
+    "Cemento",
+    "Césped sintético"
+]
+
 
 if st.session_state.usuario is None:
 
@@ -177,13 +526,14 @@ if st.session_state.usuario is None:
         st.subheader("Iniciar sesión")
 
         email = st.text_input("Email", key="login_email")
+
         password = st.text_input(
             "Contraseña",
             type="password",
             key="login_password"
         )
 
-        if st.button("Ingresar"):
+        if st.button("Ingresar", key="btn_ingresar"):
             if email == "" or password == "":
                 st.warning("Debe completar email y contraseña")
             else:
@@ -206,13 +556,14 @@ if st.session_state.usuario is None:
         apellido = st.text_input("Apellido", key="registro_apellido")
         email_registro = st.text_input("Mail", key="registro_email")
         telefono = st.text_input("Teléfono", key="registro_telefono")
+
         password_registro = st.text_input(
             "Contraseña",
             type="password",
             key="registro_password"
         )
 
-        if st.button("Registrarme"):
+        if st.button("Registrarme", key="btn_registrarme"):
             if (
                 nombre == ""
                 or apellido == ""
@@ -255,16 +606,36 @@ else:
 
         st.info(
             f"Reserva N° {reserva['id']} | "
+            f"Fecha: {reserva['fecha']} | "
+            f"Horario: {reserva['hora_inicio']} a {reserva['hora_fin']} | "
             f"Total: ${reserva['monto_total']} | "
             f"Seña a pagar 50%: ${reserva['sena']}"
         )
 
-        numero_tarjeta = st.text_input("Número de tarjeta")
-        nombre_titular = st.text_input("Nombre del titular")
-        vencimiento = st.text_input("Vencimiento", placeholder="MM/AA")
+        st.warning(
+            "La seña debe pagarse hasta 24 horas antes del horario de inicio de la reserva."
+        )
+
+        numero_tarjeta = st.text_input(
+            "Número de tarjeta",
+            key="pago_numero_tarjeta"
+        )
+
+        nombre_titular = st.text_input(
+            "Nombre del titular",
+            key="pago_nombre_titular"
+        )
+
+        vencimiento = st.text_input(
+            "Vencimiento",
+            placeholder="MM/AA",
+            key="pago_vencimiento"
+        )
+
         codigo_seguridad = st.text_input(
             "Código de seguridad",
-            type="password"
+            type="password",
+            key="pago_codigo_seguridad"
         )
 
         datos_completos = (
@@ -277,7 +648,11 @@ else:
         if not datos_completos:
             st.warning("Complete todos los datos para habilitar el pago")
 
-        if st.button("Pagar seña", disabled=not datos_completos):
+        if st.button(
+            "Pagar seña",
+            disabled=not datos_completos,
+            key="btn_pagar_sena"
+        ):
             try:
                 respuesta = pagar_sena_reserva(
                     reserva["id"],
@@ -291,7 +666,7 @@ else:
             else:
                 if respuesta.status_code == 200:
                     st.success(
-                        "Pago realizado correctamente. La reserva quedó activa."
+                        "Pago realizado correctamente. La reserva quedó confirmada."
                     )
                     st.session_state.reserva_pendiente = None
                     st.rerun()
@@ -301,7 +676,7 @@ else:
                     except Exception:
                         st.error("Error al procesar el pago")
 
-        if st.button("Cancelar operación"):
+        if st.button("Volver sin pagar", key="btn_volver_sin_pagar"):
             st.session_state.reserva_pendiente = None
             st.rerun()
 
@@ -313,7 +688,7 @@ else:
         f"Bienvenido {usuario['nombre']} {usuario.get('apellido', '')} - Rol: {usuario['rol']}"
     )
 
-    if st.button("Cerrar sesión"):
+    if st.button("Cerrar sesión", key="btn_cerrar_sesion"):
         st.session_state.usuario = None
         st.session_state.reserva_pendiente = None
         st.rerun()
@@ -324,82 +699,375 @@ else:
 
         st.header("Panel de administrador")
 
-        nombre = st.text_input("Nombre de la cancha")
-
-        superficie = st.selectbox(
-            "Tipo de superficie",
+        tab_canchas, tab_reservas, tab_reportes = st.tabs(
             [
-                "Polvo de ladrillo",
-                "Cemento",
-                "Césped sintético"
+                "Canchas disponibles",
+                "Reservas",
+                "Reportes"
             ]
         )
 
-        techada = st.checkbox("Techada")
+        with tab_canchas:
 
-        precio = st.number_input(
-            "Precio por hora",
-            min_value=1,
-            step=500
-        )
+            st.subheader("Crear nueva cancha")
 
-        if st.button("Crear cancha"):
-            if nombre == "":
-                st.warning("Debe ingresar el nombre de la cancha")
-            else:
-                try:
-                    respuesta = crear_cancha(nombre, superficie, techada, precio)
-                except requests.exceptions.RequestException:
-                    st.error("No se pudo conectar con el servidor")
+            nombre = st.text_input(
+                "Nombre de la cancha",
+                key="admin_nombre_cancha"
+            )
+
+            superficie = st.selectbox(
+                "Tipo de superficie",
+                TIPOS_SUPERFICIE,
+                key="admin_superficie_cancha"
+            )
+
+            techada = st.checkbox(
+                "Techada",
+                key="admin_techada_cancha"
+            )
+
+            precio_base = st.number_input(
+                "Precio base por hora",
+                min_value=1,
+                step=500,
+                key="admin_precio_base_cancha"
+            )
+
+            precio_diurno = st.number_input(
+                "Precio diurno por hora",
+                min_value=1,
+                step=500,
+                value=int(precio_base),
+                key="admin_precio_diurno_cancha"
+            )
+
+            precio_nocturno = st.number_input(
+                "Precio nocturno por hora",
+                min_value=1,
+                step=500,
+                value=int(precio_base * 1.2),
+                key="admin_precio_nocturno_cancha"
+            )
+
+            if st.button("Crear cancha", key="btn_crear_cancha"):
+                if nombre == "":
+                    st.warning("Debe ingresar el nombre de la cancha")
                 else:
-                    if respuesta.status_code == 200:
-                        st.success("Cancha creada correctamente")
-                        st.rerun()
+                    try:
+                        respuesta = crear_cancha(
+                            nombre,
+                            superficie,
+                            techada,
+                            precio_base,
+                            precio_diurno,
+                            precio_nocturno,
+                            usuario["id"]
+                        )
+                    except requests.exceptions.RequestException:
+                        st.error("No se pudo conectar con el servidor")
                     else:
-                        st.error("Error al crear la cancha")
-
-        st.divider()
-
-        st.header("Reservas activas")
-
-        try:
-            reservas_activas = obtener_reservas_activas()
-        except requests.exceptions.RequestException:
-            st.error("No se pudieron cargar las reservas activas")
-            reservas_activas = []
-
-        if len(reservas_activas) == 0:
-            st.info("No hay reservas activas.")
-        else:
-            for reserva in reservas_activas:
-                with st.container(border=True):
-                    st.write(f"Reserva N° {reserva['id']}")
-                    st.write(f"Usuario ID: {reserva['usuario_id']}")
-                    st.write(f"Cancha ID: {reserva['cancha_id']}")
-                    st.write(f"Fecha: {reserva['fecha']}")
-                    st.write(
-                        f"Horario: {reserva['hora_inicio']} a {reserva['hora_fin']}"
-                    )
-                    st.write(f"Cantidad de horas: {reserva['cantidad_horas']}")
-                    st.write(f"Monto total: ${reserva['monto_total']}")
-                    st.write(f"Seña 50%: ${reserva['sena']}")
-
-                    motivo = st.text_area(
-                        "Motivo de cancelación",
-                        key=f"motivo_cancelacion_{reserva['id']}"
-                    )
-
-                    if st.button(
-                        "Cancelar reserva",
-                        key=f"admin_cancelar_reserva_{reserva['id']}"
-                    ):
-                        if motivo.strip() == "":
-                            st.warning("Debe ingresar un motivo de cancelación")
+                        if respuesta.status_code == 200:
+                            st.success("Cancha creada correctamente")
+                            st.rerun()
                         else:
                             try:
-                                respuesta = cancelar_reserva_con_motivo(
+                                st.error(respuesta.json()["detail"])
+                            except Exception:
+                                st.error("Error al crear la cancha")
+
+            st.divider()
+
+            st.subheader("Canchas disponibles")
+
+            try:
+                canchas_admin = obtener_todas_las_canchas()
+            except requests.exceptions.RequestException:
+                st.error("No se pudieron cargar las canchas")
+                canchas_admin = []
+
+            canchas_disponibles_admin = []
+
+            for cancha in canchas_admin:
+                if cancha["activa"] == True:
+                    canchas_disponibles_admin.append(cancha)
+
+            if len(canchas_disponibles_admin) == 0:
+                st.info("No hay canchas disponibles.")
+            else:
+                for cancha in canchas_disponibles_admin:
+                    with st.container(border=True):
+                        st.subheader(cancha["nombre"])
+
+                        st.write("### Datos actuales")
+                        st.write(f"Nombre: {cancha['nombre']}")
+                        st.write(f"Superficie: {cancha['tipo_superficie']}")
+                        st.write(f"Techada: {'Sí' if cancha['techada'] else 'No'}")
+                        st.write(f"Precio base: ${cancha['precio_por_hora']}")
+                        st.write(
+                            f"Precio diurno: ${cancha.get('precio_diurno', cancha['precio_por_hora'])}"
+                        )
+                        st.write(
+                            f"Precio nocturno: ${cancha.get('precio_nocturno', cancha['precio_por_hora'])}"
+                        )
+                        st.write("Estado: Activa")
+
+                        st.write("### Modificar cancha")
+
+                        nuevo_nombre = st.text_input(
+                            "Nombre",
+                            value=cancha["nombre"],
+                            key=f"admin_editar_nombre_cancha_{cancha['id']}"
+                        )
+
+                        superficie_actual = cancha["tipo_superficie"]
+
+                        if superficie_actual in TIPOS_SUPERFICIE:
+                            indice_superficie = TIPOS_SUPERFICIE.index(superficie_actual)
+                        else:
+                            indice_superficie = 0
+
+                        nueva_superficie = st.selectbox(
+                            "Tipo de superficie",
+                            TIPOS_SUPERFICIE,
+                            index=indice_superficie,
+                            key=f"admin_editar_superficie_cancha_{cancha['id']}"
+                        )
+
+                        nueva_techada = st.checkbox(
+                            "Techada",
+                            value=cancha["techada"],
+                            key=f"admin_editar_techada_cancha_{cancha['id']}"
+                        )
+
+                        nuevo_precio_base = st.number_input(
+                            "Precio base por hora",
+                            min_value=1,
+                            value=int(cancha["precio_por_hora"]),
+                            step=500,
+                            key=f"admin_editar_precio_base_cancha_{cancha['id']}"
+                        )
+
+                        nuevo_precio_diurno = st.number_input(
+                            "Precio diurno por hora",
+                            min_value=1,
+                            value=int(
+                                cancha.get(
+                                    "precio_diurno",
+                                    cancha["precio_por_hora"]
+                                )
+                            ),
+                            step=500,
+                            key=f"admin_editar_precio_diurno_cancha_{cancha['id']}"
+                        )
+
+                        nuevo_precio_nocturno = st.number_input(
+                            "Precio nocturno por hora",
+                            min_value=1,
+                            value=int(
+                                cancha.get(
+                                    "precio_nocturno",
+                                    cancha["precio_por_hora"]
+                                )
+                            ),
+                            step=500,
+                            key=f"admin_editar_precio_nocturno_cancha_{cancha['id']}"
+                        )
+
+                        if st.button(
+                            "Guardar cambios de cancha",
+                            key=f"admin_guardar_cambios_cancha_{cancha['id']}"
+                        ):
+                            if nuevo_nombre.strip() == "":
+                                st.warning("El nombre de la cancha no puede estar vacío")
+                            else:
+                                try:
+                                    respuesta = modificar_cancha(
+                                        cancha["id"],
+                                        nuevo_nombre,
+                                        nueva_superficie,
+                                        nueva_techada,
+                                        nuevo_precio_base,
+                                        nuevo_precio_diurno,
+                                        nuevo_precio_nocturno,
+                                        True,
+                                        usuario["id"]
+                                    )
+                                except requests.exceptions.RequestException:
+                                    st.error("No se pudo conectar con el servidor")
+                                else:
+                                    if respuesta.status_code == 200:
+                                        st.success("Cancha modificada correctamente")
+                                        st.rerun()
+                                    else:
+                                        try:
+                                            st.error(respuesta.json()["detail"])
+                                        except Exception:
+                                            st.error("Error al modificar la cancha")
+
+                        if st.button(
+                            "Dar de baja cancha",
+                            key=f"admin_dar_baja_cancha_{cancha['id']}"
+                        ):
+                            try:
+                                respuesta = eliminar_cancha(
+                                    cancha["id"],
+                                    usuario["id"]
+                                )
+                            except requests.exceptions.RequestException:
+                                st.error("No se pudo conectar con el servidor")
+                            else:
+                                if respuesta.status_code == 200:
+                                    st.success("Cancha dada de baja")
+                                    st.rerun()
+                                else:
+                                    try:
+                                        st.error(respuesta.json()["detail"])
+                                    except Exception:
+                                        st.error("Error al eliminar cancha")
+
+        with tab_reservas:
+
+            tab_reservas_activas_admin, tab_reservas_pendientes_admin = st.tabs(
+                [
+                    "Activas",
+                    "Pendientes"
+                ]
+            )
+
+            with tab_reservas_activas_admin:
+                st.subheader("Reservas activas")
+
+                try:
+                    reservas_admin = obtener_reservas_activas(usuario["id"])
+                except requests.exceptions.RequestException:
+                    st.error("No se pudieron cargar las reservas activas")
+                    reservas_admin = []
+
+                if len(reservas_admin) == 0:
+                    st.info("No hay reservas activas.")
+                else:
+                    for reserva in reservas_admin:
+                        with st.container(border=True):
+                            mostrar_reserva(reserva)
+
+                            motivo = st.text_area(
+                                "Motivo de cancelación",
+                                key=f"admin_motivo_cancelacion_activa_{reserva['id']}"
+                            )
+
+                            if st.button(
+                                "Cancelar reserva",
+                                key=f"admin_cancelar_reserva_activa_{reserva['id']}"
+                            ):
+                                if motivo.strip() == "":
+                                    st.warning("Debe ingresar un motivo de cancelación")
+                                else:
+                                    try:
+                                        respuesta = cancelar_reserva_con_motivo(
+                                            reserva["id"],
+                                            motivo,
+                                            usuario["id"]
+                                        )
+                                    except requests.exceptions.RequestException:
+                                        st.error("No se pudo conectar con el servidor")
+                                    else:
+                                        if respuesta.status_code == 200:
+                                            st.success("Reserva cancelada correctamente")
+                                            st.rerun()
+                                        else:
+                                            try:
+                                                st.error(respuesta.json()["detail"])
+                                            except Exception:
+                                                st.error("Error al cancelar la reserva")
+
+            with tab_reservas_pendientes_admin:
+                st.subheader("Reservas pendientes")
+
+                try:
+                    reservas_admin = obtener_reservas_pendientes_admin(usuario["id"])
+                except requests.exceptions.RequestException:
+                    st.error("No se pudieron cargar las reservas pendientes")
+                    reservas_admin = []
+
+                if len(reservas_admin) == 0:
+                    st.info("No hay reservas pendientes.")
+                else:
+                    for reserva in reservas_admin:
+                        with st.container(border=True):
+                            mostrar_reserva(reserva)
+
+                            motivo = st.text_area(
+                                "Motivo de cancelación",
+                                key=f"admin_motivo_cancelacion_pendiente_{reserva['id']}"
+                            )
+
+                            if st.button(
+                                "Cancelar reserva pendiente",
+                                key=f"admin_cancelar_reserva_pendiente_{reserva['id']}"
+                            ):
+                                if motivo.strip() == "":
+                                    st.warning("Debe ingresar un motivo de cancelación")
+                                else:
+                                    try:
+                                        respuesta = cancelar_reserva_con_motivo(
+                                            reserva["id"],
+                                            motivo,
+                                            usuario["id"]
+                                        )
+                                    except requests.exceptions.RequestException:
+                                        st.error("No se pudo conectar con el servidor")
+                                    else:
+                                        if respuesta.status_code == 200:
+                                            st.success("Reserva cancelada correctamente")
+                                            st.rerun()
+                                        else:
+                                            try:
+                                                st.error(respuesta.json()["detail"])
+                                            except Exception:
+                                                st.error("Error al cancelar la reserva")
+
+        with tab_reportes:
+            mostrar_reportes_admin(usuario)
+
+        st.stop()
+
+    if usuario["rol"] == "COMUN":
+
+        st.header("Mis reservas")
+
+        tab_activas, tab_pendientes, tab_pasadas, tab_canceladas, tab_historial = st.tabs(
+            [
+                "Activas",
+                "Pendientes",
+                "Pasadas",
+                "Canceladas",
+                "Historial completo"
+            ]
+        )
+
+        with tab_activas:
+            try:
+                reservas = obtener_reservas_activas_usuario(usuario["id"])
+            except requests.exceptions.RequestException:
+                st.error("No se pudieron cargar tus reservas activas")
+                reservas = []
+
+            if len(reservas) == 0:
+                st.info("No tenés reservas activas.")
+            else:
+                for reserva in reservas:
+                    with st.container(border=True):
+                        mostrar_reserva(reserva)
+
+                        if st.button(
+                            "Cancelar reserva",
+                            key=f"usuario_cancelar_reserva_{reserva['id']}"
+                        ):
+                            try:
+                                respuesta = cancelar_reserva_usuario(
                                     reserva["id"],
-                                    motivo
+                                    usuario["id"]
                                 )
                             except requests.exceptions.RequestException:
                                 st.error("No se pudo conectar con el servidor")
@@ -413,164 +1081,223 @@ else:
                                     except Exception:
                                         st.error("Error al cancelar la reserva")
 
-        st.divider()
+        with tab_pendientes:
+            try:
+                reservas_pendientes = obtener_reservas_pendientes_usuario(usuario["id"])
+            except requests.exceptions.RequestException:
+                st.error("No se pudieron cargar tus reservas pendientes")
+                reservas_pendientes = []
 
-    if usuario["rol"] == "COMUN":
-
-        st.header("Mis reservas activas")
-
-        try:
-            reservas = obtener_reservas_activas_usuario(usuario["id"])
-        except requests.exceptions.RequestException:
-            st.error("No se pudieron cargar tus reservas")
-            reservas = []
-
-        if len(reservas) == 0:
-            st.info("No tenés reservas activas.")
-        else:
-            for reserva in reservas:
-                with st.container(border=True):
-                    st.write(f"Reserva N° {reserva['id']}")
-                    st.write(f"Cancha ID: {reserva['cancha_id']}")
-                    st.write(f"Fecha: {reserva['fecha']}")
-                    st.write(
-                        f"Horario: {reserva['hora_inicio']} a {reserva['hora_fin']}"
-                    )
-                    st.write(f"Cantidad de horas: {reserva['cantidad_horas']}")
-                    st.write(f"Monto total: ${reserva['monto_total']}")
-                    st.write(f"Seña 50%: ${reserva['sena']}")
-
-                    if st.button(
-                        "Cancelar reserva",
-                        key=f"cancelar_{reserva['id']}"
-                    ):
-                        try:
-                            respuesta = cancelar_reserva_usuario(reserva["id"])
-                        except requests.exceptions.RequestException:
-                            st.error("No se pudo conectar con el servidor")
-                        else:
-                            if respuesta.status_code == 200:
-                                st.success("Reserva cancelada correctamente")
-                                st.rerun()
-                            else:
-                                st.error("Error al cancelar la reserva")
-
-        st.divider()
-
-    st.header("Canchas")
-
-    try:
-        if usuario["rol"] == "ADMINISTRADOR":
-            canchas = obtener_todas_las_canchas()
-        else:
-            canchas = obtener_canchas_disponibles()
-
-    except requests.exceptions.RequestException:
-        st.error("No se pudo conectar con el servidor")
-        canchas = []
-
-    if len(canchas) == 0:
-        st.warning("No hay canchas cargadas")
-
-    for cancha in canchas:
-
-        with st.container(border=True):
-
-            st.subheader(cancha["nombre"])
-
-            st.write(f"Superficie: {cancha['tipo_superficie']}")
-            st.write(f"Techada: {'Sí' if cancha['techada'] else 'No'}")
-            st.write(f"Precio por hora: ${cancha['precio_por_hora']}")
-
-            if usuario["rol"] == "ADMINISTRADOR":
-
-                st.write(f"Estado: {'Activa' if cancha['activa'] else 'Inactiva'}")
-
-                nuevo_precio = st.number_input(
-                    "Nuevo precio por hora",
-                    min_value=1,
-                    value=int(cancha["precio_por_hora"]),
-                    step=500,
-                    key=f"nuevo_precio_{cancha['id']}"
+            if len(reservas_pendientes) == 0:
+                st.info("No tenés reservas pendientes.")
+            else:
+                st.warning(
+                    "Recordá que la seña debe pagarse hasta 24 horas antes del turno."
                 )
 
-                if st.button(
-                    "Modificar precio",
-                    key=f"modificar_precio_{cancha['id']}"
-                ):
-                    try:
-                        respuesta = modificar_precio_cancha(
-                            cancha["id"],
-                            nuevo_precio
-                        )
-                    except requests.exceptions.RequestException:
-                        st.error("No se pudo conectar con el servidor")
-                    else:
-                        if respuesta.status_code == 200:
-                            st.success("Precio actualizado correctamente")
+                for reserva in reservas_pendientes:
+                    with st.container(border=True):
+                        mostrar_reserva(reserva)
+
+                        if st.button(
+                            "Pagar seña pendiente",
+                            key=f"usuario_pagar_reserva_pendiente_{reserva['id']}"
+                        ):
+                            st.session_state.reserva_pendiente = reserva
                             st.rerun()
-                        else:
-                            st.error("Error al modificar el precio")
 
-                if cancha["activa"]:
-                    if st.button(
-                        "Dar de baja cancha",
-                        key=f"eliminar_{cancha['id']}"
-                    ):
-                        try:
-                            respuesta = eliminar_cancha(cancha["id"])
-                        except requests.exceptions.RequestException:
-                            st.error("No se pudo conectar con el servidor")
-                        else:
-                            if respuesta.status_code == 200:
-                                st.success("Cancha dada de baja")
-                                st.rerun()
+                        if st.button(
+                            "Cancelar reserva pendiente",
+                            key=f"usuario_cancelar_reserva_pendiente_{reserva['id']}"
+                        ):
+                            try:
+                                respuesta = cancelar_reserva_usuario(
+                                    reserva["id"],
+                                    usuario["id"]
+                                )
+                            except requests.exceptions.RequestException:
+                                st.error("No se pudo conectar con el servidor")
                             else:
-                                st.error("Error al eliminar cancha")
+                                if respuesta.status_code == 200:
+                                    st.success("Reserva cancelada correctamente")
+                                    st.rerun()
+                                else:
+                                    try:
+                                        st.error(respuesta.json()["detail"])
+                                    except Exception:
+                                        st.error("Error al cancelar la reserva")
 
-            if usuario["rol"] == "COMUN":
+        with tab_pasadas:
+            try:
+                reservas_pasadas = obtener_reservas_pasadas_usuario(usuario["id"])
+            except requests.exceptions.RequestException:
+                st.error("No se pudieron cargar tus reservas pasadas")
+                reservas_pasadas = []
+
+            if len(reservas_pasadas) == 0:
+                st.info("No tenés reservas pasadas.")
+            else:
+                for reserva in reservas_pasadas:
+                    with st.container(border=True):
+                        mostrar_reserva(reserva)
+
+        with tab_canceladas:
+            try:
+                reservas_canceladas = obtener_reservas_canceladas_usuario(usuario["id"])
+            except requests.exceptions.RequestException:
+                st.error("No se pudieron cargar tus reservas canceladas")
+                reservas_canceladas = []
+
+            if len(reservas_canceladas) == 0:
+                st.info("No tenés reservas canceladas.")
+            else:
+                for reserva in reservas_canceladas:
+                    with st.container(border=True):
+                        mostrar_reserva(reserva)
+
+        with tab_historial:
+            try:
+                historial = obtener_historial_reservas_usuario(usuario["id"])
+            except requests.exceptions.RequestException:
+                st.error("No se pudo cargar tu historial")
+                historial = []
+
+            if len(historial) == 0:
+                st.info("No hay reservas en tu historial.")
+            else:
+                for reserva in historial:
+                    with st.container(border=True):
+                        mostrar_reserva(reserva)
+
+        st.divider()
+
+        st.header("Canchas")
+
+        st.subheader("Buscar disponibilidad")
+
+        fecha_busqueda = st.date_input(
+            "Fecha de reserva",
+            value=date.today(),
+            key="buscar_fecha_reserva"
+        )
+
+        hora_inicio_busqueda = st.selectbox(
+            "Hora de inicio",
+            HORARIOS,
+            key="buscar_hora_inicio_reserva"
+        )
+
+        hora_fin_busqueda = st.selectbox(
+            "Hora de fin",
+            HORARIOS,
+            key="buscar_hora_fin_reserva"
+        )
+
+        try:
+            canchas = obtener_canchas_disponibles(
+                fecha_busqueda,
+                hora_inicio_busqueda,
+                hora_fin_busqueda
+            )
+        except requests.exceptions.RequestException as error:
+            try:
+                st.error(error.response.json()["detail"])
+            except Exception:
+                st.error("No se pudo conectar con el servidor")
+            canchas = []
+
+        if len(canchas) == 0:
+            st.warning(
+                "No hay canchas disponibles para la fecha y horario seleccionados"
+            )
+
+        for cancha in canchas:
+
+            with st.container(border=True):
+
+                st.subheader(cancha["nombre"])
+
+                st.write(f"Superficie: {cancha['tipo_superficie']}")
+                st.write(f"Techada: {'Sí' if cancha['techada'] else 'No'}")
+                st.write(
+                    f"Precio diurno: ${cancha.get('precio_diurno', cancha['precio_por_hora'])}"
+                )
+                st.write(
+                    f"Precio nocturno: ${cancha.get('precio_nocturno', cancha['precio_por_hora'])}"
+                )
 
                 st.write("### Reservar cancha")
 
-                fecha = st.date_input(
-                    "Fecha",
-                    value=date.today(),
-                    key=f"fecha_{cancha['id']}"
+                st.write(f"Fecha seleccionada: {fecha_busqueda}")
+
+                st.write(
+                    f"Horario seleccionado: "
+                    f"{hora_inicio_busqueda} a {hora_fin_busqueda}"
                 )
 
-                hora_inicio = st.selectbox(
-                    "Hora de inicio",
-                    HORARIOS,
-                    key=f"hora_inicio_{cancha['id']}"
-                )
+                col_guardar, col_pagar = st.columns(2)
 
-                hora_fin = st.selectbox(
-                    "Hora de fin",
-                    HORARIOS,
-                    key=f"hora_fin_{cancha['id']}"
-                )
-
-                if st.button(
-                    "Continuar al pago",
-                    key=f"reservar_{cancha['id']}"
-                ):
-                    try:
-                        respuesta = realizar_reserva(
-                            usuario["id"],
-                            cancha["id"],
-                            fecha,
-                            hora_inicio,
-                            hora_fin
+                with col_guardar:
+                    if st.button(
+                        "Guardar reserva",
+                        key=(
+                            f"usuario_guardar_reserva_"
+                            f"{cancha['id']}_"
+                            f"{fecha_busqueda}_"
+                            f"{hora_inicio_busqueda}_"
+                            f"{hora_fin_busqueda}"
                         )
-                    except requests.exceptions.RequestException:
-                        st.error("No se pudo conectar con el servidor")
-                    else:
-                        if respuesta.status_code == 200:
-                            datos = respuesta.json()
-                            st.session_state.reserva_pendiente = datos
-                            st.rerun()
+                    ):
+                        try:
+                            respuesta = realizar_reserva(
+                                usuario["id"],
+                                cancha["id"],
+                                fecha_busqueda,
+                                hora_inicio_busqueda,
+                                hora_fin_busqueda
+                            )
+                        except requests.exceptions.RequestException:
+                            st.error("No se pudo conectar con el servidor")
                         else:
-                            try:
-                                st.error(respuesta.json()["detail"])
-                            except Exception:
-                                st.error("Error al realizar la reserva")
+                            if respuesta.status_code == 200:
+                                st.success(
+                                    "Reserva guardada correctamente. El pago quedó pendiente."
+                                )
+                                st.rerun()
+                            else:
+                                try:
+                                    st.error(respuesta.json()["detail"])
+                                except Exception:
+                                    st.error("Error al guardar la reserva")
+
+                with col_pagar:
+                    if st.button(
+                        "Pagar seña ahora",
+                        key=(
+                            f"usuario_pagar_reserva_"
+                            f"{cancha['id']}_"
+                            f"{fecha_busqueda}_"
+                            f"{hora_inicio_busqueda}_"
+                            f"{hora_fin_busqueda}"
+                        )
+                    ):
+                        try:
+                            respuesta = realizar_reserva(
+                                usuario["id"],
+                                cancha["id"],
+                                fecha_busqueda,
+                                hora_inicio_busqueda,
+                                hora_fin_busqueda
+                            )
+                        except requests.exceptions.RequestException:
+                            st.error("No se pudo conectar con el servidor")
+                        else:
+                            if respuesta.status_code == 200:
+                                datos = respuesta.json()
+                                st.session_state.reserva_pendiente = datos
+                                st.rerun()
+                            else:
+                                try:
+                                    st.error(respuesta.json()["detail"])
+                                except Exception:
+                                    st.error("Error al realizar la reserva")

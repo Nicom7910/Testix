@@ -5,7 +5,9 @@
         "tipo_superficie": "Polvo de ladrillo",
         "techada": false,
         "precio_por_hora": 45000.0,
-        "activa": true
+        "activa": true,
+        "precio_diurno": 45000.0,
+        "precio_nocturno": 54000.0
     },
     {
         "id": 2,
@@ -13,6 +15,8 @@
         "tipo_superficie": "Césped sintético",
         "techada": true,
         "precio_por_hora": 40000.0,
-        "activa": true
+        "activa": true,
+        "precio_diurno": 40000.0,
+        "precio_nocturno": 48000.0
     }
 ]

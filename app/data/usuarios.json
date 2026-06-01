@@ -3,17 +3,21 @@
         "id": 1,
         "nombre": "Administrador",
         "email": "admin@email.com",
-        "password": "1234",
+        "password": "pbkdf2_sha256$2fb2ff7e9ed0a2beefdbf5cf5aee3914$a95d45a1237571b52a1cc7a5bafe092b23c461a4c6bac8e6dbe59d2c4d9d40bb",
         "rol": "ADMINISTRADOR",
-        "activo": true
+        "activo": true,
+        "apellido": "",
+        "telefono": ""
     },
     {
         "id": 2,
         "nombre": "Nico",
         "email": "nico@email.com",
-        "password": "1234",
+        "password": "pbkdf2_sha256$67091cc01335b3210fe2f86934ffd3bb$7ac7b8a5463df48e1f598c0e1f2239e97a6ba717c1b59f74b989187840ccdd4f",
         "rol": "COMUN",
-        "activo": true
+        "activo": true,
+        "apellido": "",
+        "telefono": ""
     },
     {
         "id": 3,
@@ -22,6 +26,16 @@
         "email": "jose@gmail.com",
         "telefono": "1193456930",
         "password": "1234",
+        "rol": "COMUN",
+        "activo": true
+    },
+    {
+        "id": 4,
+        "nombre": "Raul",
+        "apellido": "Gimenez",
+        "email": "raul@uade.edu.ar",
+        "telefono": "1123547687",
+        "password": "pbkdf2_sha256$03a758432453f4be619a9c9db2b10056$b523de6808696e40c0f8c257121928e67858c7cf504a2e477b11d67f23802b98",
         "rol": "COMUN",
         "activo": true
     }

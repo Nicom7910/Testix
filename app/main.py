@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes.cancha_routes import router as cancha_router
-from app.routes.usuario_routes import router as usuario_router
-from app.routes.reserva_routes import router as reserva_router
+from app.routes import usuario_routes
+from app.routes import cancha_routes
+from app.routes import reserva_routes
+from app.routes import reporte_routes
 
 app = FastAPI(
-    title="API Reserva de Canchas de Tenis",
-    description="Sistema con FastAPI y persistencia en archivos JSON",
+    title="Sistema de Gestión de Alquiler de Canchas de Tenis",
     version="1.0.0"
 )
 
@@ -19,13 +19,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(cancha_router)
-app.include_router(usuario_router)
-app.include_router(reserva_router)
+app.include_router(usuario_routes.router)
+app.include_router(cancha_routes.router)
+app.include_router(reserva_routes.router)
+app.include_router(reporte_routes.router)
 
 
 @app.get("/")
 def inicio():
     return {
-        "mensaje": "API funcionando correctamente con archivos JSON"
+        "mensaje": "API del Sistema de Gestión de Alquiler de Canchas de Tenis"
     }
