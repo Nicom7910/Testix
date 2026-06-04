@@ -50,6 +50,7 @@ ESTADOS_PAGO_VALIDOS = [
 
 HORA_APERTURA = time(8, 0)
 HORA_CIERRE = time(23, 0)
+HORA_MEDIANOCHE = time(0, 0)
 HORA_INICIO_NOCTURNO = time(18, 0)
 
 
@@ -91,23 +92,39 @@ def convertir_hora(texto_hora: str):
         return datetime.strptime(texto_hora, "%H:%M").time()
 
 
-def obtener_fecha_hora_inicio(reserva: dict):
-    fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
-    hora_inicio = convertir_hora(reserva["hora_inicio"])
+def obtener_intervalo_datetime(fecha_reserva: date, hora_inicio: time, hora_fin: time):
+    inicio = datetime.combine(fecha_reserva, hora_inicio)
+    fin = datetime.combine(fecha_reserva, hora_fin)
 
-    return datetime.combine(fecha_reserva, hora_inicio)
+    if hora_fin <= hora_inicio:
+        fin = fin + timedelta(days=1)
+
+    return inicio, fin
 
 
 def obtener_fecha_hora_fin(reserva: dict):
     fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
+    hora_inicio = convertir_hora(reserva["hora_inicio"])
     hora_fin = convertir_hora(reserva["hora_fin"])
 
-    return datetime.combine(fecha_reserva, hora_fin)
+    _, fin = obtener_intervalo_datetime(fecha_reserva, hora_inicio, hora_fin)
+
+    return fin
 
 
 def obtener_limite_pago(reserva: dict):
-    fecha_hora_inicio = obtener_fecha_hora_inicio(reserva)
-    return fecha_hora_inicio - timedelta(hours=24)
+    fecha_creacion = reserva.get("fecha_creacion")
+
+    if fecha_creacion is not None:
+        try:
+            return datetime.strptime(
+                fecha_creacion,
+                "%Y-%m-%d %H:%M:%S"
+            ) + timedelta(hours=24)
+        except Exception:
+            pass
+
+    return datetime.now() + timedelta(hours=24)
 
 
 def hay_superposicion(inicio_nuevo, fin_nuevo, inicio_existente, fin_existente):
@@ -161,7 +178,8 @@ def normalizar_reserva(reserva: dict):
 
 
 def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: time):
-    hoy = date.today()
+    ahora = datetime.now()
+    hoy = ahora.date()
 
     if fecha_reserva < hoy:
         raise HTTPException(
@@ -169,16 +187,35 @@ def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: ti
             detail="No se pueden crear reservas con fecha anterior a la actual"
         )
 
-    if hora_fin <= hora_inicio:
+    if hora_inicio < HORA_APERTURA or hora_inicio > HORA_CIERRE:
         raise HTTPException(
             status_code=400,
-            detail="La hora de fin debe ser mayor a la hora de inicio"
+            detail="La hora de inicio debe estar entre 08:00 y 23:00"
         )
 
-    if hora_inicio < HORA_APERTURA or hora_fin > HORA_CIERRE:
+    if hora_fin != HORA_MEDIANOCHE:
+        if hora_fin <= hora_inicio:
+            raise HTTPException(
+                status_code=400,
+                detail="La hora de fin debe ser mayor a la hora de inicio, excepto si finaliza a las 00:00"
+            )
+
+        if hora_fin > HORA_CIERRE:
+            raise HTTPException(
+                status_code=400,
+                detail="La hora de fin debe ser hasta las 23:00 o 00:00"
+            )
+
+    inicio_reserva, _ = obtener_intervalo_datetime(
+        fecha_reserva,
+        hora_inicio,
+        hora_fin
+    )
+
+    if inicio_reserva <= ahora:
         raise HTTPException(
             status_code=400,
-            detail="El horario permitido para reservas es de 08:00 a 23:00"
+            detail="No se pueden crear reservas en un horario anterior al momento actual"
         )
 
 
@@ -207,17 +244,16 @@ def validar_pago(datos_pago: PagoReservaRequest):
     mes = int(mes)
     anio = int("20" + anio)
 
-    hoy = datetime.now()
-    fecha_vencimiento = datetime(anio, mes, 1)
+    ahora = datetime.now()
+    anio_actual = ahora.year
+    mes_actual = ahora.month
 
-    if fecha_vencimiento.year < hoy.year or (
-        fecha_vencimiento.year == hoy.year
-        and fecha_vencimiento.month < hoy.month
-    ):
+    if anio < anio_actual or (anio == anio_actual and mes < mes_actual):
         raise HTTPException(
             status_code=400,
             detail="La tarjeta se encuentra vencida"
         )
+
 
     codigo = datos_pago.codigo_seguridad.strip()
 
@@ -226,6 +262,18 @@ def validar_pago(datos_pago: PagoReservaRequest):
             status_code=400,
             detail="El código de seguridad debe tener 3 o 4 dígitos"
         )
+
+
+def ordenar_reservas_recientes(reservas: list):
+    def clave(reserva):
+        try:
+            fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
+            hora_inicio = convertir_hora(reserva["hora_inicio"])
+            return datetime.combine(fecha_reserva, hora_inicio)
+        except Exception:
+            return datetime.min
+
+    return sorted(reservas, key=clave, reverse=True)
 
 
 def actualizar_reservas_por_tiempo(reservas: list):
@@ -254,7 +302,7 @@ def actualizar_reservas_por_tiempo(reservas: list):
                 reserva["activa"] = False
                 reserva["motivo_cancelacion"] = (
                     "Cancelada automáticamente por no pagar la seña "
-                    "hasta 24 horas antes del turno"
+                    "dentro de las 24 horas posteriores a la creación de la reserva"
                 )
 
         if reserva != reserva_original:
@@ -296,8 +344,11 @@ def obtener_cancha_activa_por_id(cancha_id: int):
 def calcular_importes(cancha: dict, fecha_reserva, hora_inicio, hora_fin):
     validar_fecha_y_horario(fecha_reserva, hora_inicio, hora_fin)
 
-    inicio_datetime = datetime.combine(fecha_reserva, hora_inicio)
-    fin_datetime = datetime.combine(fecha_reserva, hora_fin)
+    inicio_datetime, fin_datetime = obtener_intervalo_datetime(
+        fecha_reserva,
+        hora_inicio,
+        hora_fin
+    )
 
     cantidad_horas = 0
     monto_total = 0
@@ -334,6 +385,14 @@ def validar_superposicion_reserva(
     hora_inicio,
     hora_fin
 ):
+    fecha_obj = datetime.strptime(fecha_reserva, "%Y-%m-%d").date()
+
+    inicio_nuevo, fin_nuevo = obtener_intervalo_datetime(
+        fecha_obj,
+        hora_inicio,
+        hora_fin
+    )
+
     for reserva in reservas:
         normalizar_reserva(reserva)
 
@@ -348,14 +407,20 @@ def validar_superposicion_reserva(
                 ESTADO_RESERVA_CONFIRMADA
             ]
         ):
-            reserva_inicio_existente = convertir_hora(reserva["hora_inicio"])
-            reserva_fin_existente = convertir_hora(reserva["hora_fin"])
+            reserva_inicio = convertir_hora(reserva["hora_inicio"])
+            reserva_fin = convertir_hora(reserva["hora_fin"])
+
+            inicio_existente, fin_existente = obtener_intervalo_datetime(
+                fecha_obj,
+                reserva_inicio,
+                reserva_fin
+            )
 
             if hay_superposicion(
-                hora_inicio,
-                hora_fin,
-                reserva_inicio_existente,
-                reserva_fin_existente
+                inicio_nuevo,
+                fin_nuevo,
+                inicio_existente,
+                fin_existente
             ):
                 raise HTTPException(
                     status_code=400,
@@ -444,7 +509,7 @@ def listar_reservas(admin_id: int = Query(...)):
     validar_administrador(admin_id)
 
     reservas = obtener_reservas_actualizadas()
-    return reservas
+    return ordenar_reservas_recientes(reservas)
 
 
 @router.get("/activas", response_model=list[ReservaResponse])
@@ -452,10 +517,12 @@ def listar_reservas_activas(admin_id: int = Query(...)):
     validar_administrador(admin_id)
 
     reservas = obtener_reservas_actualizadas()
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/pendientes", response_model=list[ReservaResponse])
@@ -463,10 +530,12 @@ def listar_reservas_pendientes(admin_id: int = Query(...)):
     validar_administrador(admin_id)
 
     reservas = obtener_reservas_actualizadas()
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["estado_reserva"] == ESTADO_RESERVA_PENDIENTE
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/canceladas", response_model=list[ReservaResponse])
@@ -474,10 +543,12 @@ def listar_reservas_canceladas(admin_id: int = Query(...)):
     validar_administrador(admin_id)
 
     reservas = obtener_reservas_actualizadas()
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/pasadas", response_model=list[ReservaResponse])
@@ -485,64 +556,76 @@ def listar_reservas_pasadas(admin_id: int = Query(...)):
     validar_administrador(admin_id)
 
     reservas = obtener_reservas_actualizadas()
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/usuario/{usuario_id}/activas", response_model=list[ReservaResponse])
 def listar_reservas_activas_usuario(usuario_id: int):
     reservas = obtener_reservas_actualizadas()
 
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["usuario_id"] == usuario_id
         and reserva["estado_reserva"] == ESTADO_RESERVA_CONFIRMADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/usuario/{usuario_id}/pendientes", response_model=list[ReservaResponse])
 def listar_reservas_pendientes_usuario(usuario_id: int):
     reservas = obtener_reservas_actualizadas()
 
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["usuario_id"] == usuario_id
         and reserva["estado_reserva"] == ESTADO_RESERVA_PENDIENTE
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/usuario/{usuario_id}/canceladas", response_model=list[ReservaResponse])
 def listar_reservas_canceladas_usuario(usuario_id: int):
     reservas = obtener_reservas_actualizadas()
 
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["usuario_id"] == usuario_id
         and reserva["estado_reserva"] == ESTADO_RESERVA_CANCELADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/usuario/{usuario_id}/pasadas", response_model=list[ReservaResponse])
 def listar_reservas_pasadas_usuario(usuario_id: int):
     reservas = obtener_reservas_actualizadas()
 
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["usuario_id"] == usuario_id
         and reserva["estado_reserva"] == ESTADO_RESERVA_FINALIZADA
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.get("/usuario/{usuario_id}/historial", response_model=list[ReservaResponse])
 def listar_historial_usuario(usuario_id: int):
     reservas = obtener_reservas_actualizadas()
 
-    return [
+    reservas_filtradas = [
         reserva for reserva in reservas
         if reserva["usuario_id"] == usuario_id
     ]
+
+    return ordenar_reservas_recientes(reservas_filtradas)
 
 
 @router.put("/{reserva_id}", response_model=ReservaResponse)
@@ -664,14 +747,14 @@ def pagar_sena_reserva(
                 reserva["activa"] = False
                 reserva["motivo_cancelacion"] = (
                     "Cancelada automáticamente por no pagar la seña "
-                    "hasta 24 horas antes del turno"
+                    "dentro de las 24 horas posteriores a la creación de la reserva"
                 )
 
                 guardar_archivo(RUTA_RESERVAS, reservas)
 
                 raise HTTPException(
                     status_code=400,
-                    detail="El plazo para pagar la seña venció. Debía pagarse al menos 24 horas antes de la reserva."
+                    detail="El plazo para pagar la seña venció. Debía pagarse dentro de las 24 horas posteriores a la creación de la reserva."
                 )
 
             numero = datos_pago.numero_tarjeta.replace(" ", "").replace("-", "")
