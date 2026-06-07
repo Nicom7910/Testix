@@ -15,6 +15,12 @@ if "usuario" not in st.session_state:
 if "reserva_pendiente" not in st.session_state:
     st.session_state.reserva_pendiente = None
 
+if "mensaje_pago" not in st.session_state:
+    st.session_state.mensaje_pago = None
+
+if "tipo_mensaje_pago" not in st.session_state:
+    st.session_state.tipo_mensaje_pago = None
+
 
 def formatear_vencimiento(valor):
     solo_numeros = ""
@@ -704,9 +710,10 @@ else:
                 st.error("No se pudo conectar con el servidor")
             else:
                 if respuesta.status_code == 200:
-                    st.success(
-                        "Pago realizado correctamente. La reserva quedó confirmada."
+                    st.session_state.mensaje_pago = (
+                        "Pago aprobado correctamente. La reserva quedó confirmada."
                     )
+                    st.session_state.tipo_mensaje_pago = "success"
                     st.session_state.reserva_pendiente = None
                     st.rerun()
                 else:
@@ -716,6 +723,10 @@ else:
                         st.error("Error al procesar el pago")
 
         if st.button("Volver sin pagar", key="btn_volver_sin_pagar"):
+            st.session_state.mensaje_pago = (
+                "Pago cancelado. La reserva continúa pendiente de pago."
+            )
+            st.session_state.tipo_mensaje_pago = "warning"
             st.session_state.reserva_pendiente = None
             st.rerun()
 
@@ -727,9 +738,24 @@ else:
         f"Bienvenido {usuario['nombre']} {usuario.get('apellido', '')} - Rol: {usuario['rol']}"
     )
 
+    if st.session_state.mensaje_pago is not None:
+        if st.session_state.tipo_mensaje_pago == "success":
+            st.success(st.session_state.mensaje_pago)
+        elif st.session_state.tipo_mensaje_pago == "warning":
+            st.warning(st.session_state.mensaje_pago)
+        else:
+            st.info(st.session_state.mensaje_pago)
+
+        if st.button("Cerrar mensaje", key="btn_cerrar_mensaje_pago"):
+            st.session_state.mensaje_pago = None
+            st.session_state.tipo_mensaje_pago = None
+            st.rerun()
+
     if st.button("Cerrar sesión", key="btn_cerrar_sesion"):
         st.session_state.usuario = None
         st.session_state.reserva_pendiente = None
+        st.session_state.mensaje_pago = None
+        st.session_state.tipo_mensaje_pago = None
         st.rerun()
 
     st.divider()
