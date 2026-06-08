@@ -53,6 +53,8 @@ HORA_CIERRE = time(23, 0)
 HORA_MEDIANOCHE = time(0, 0)
 HORA_INICIO_NOCTURNO = time(18, 0)
 
+MINUTOS_MINIMOS_REEMBOLSO = 30
+
 
 def obtener_usuario_por_id(usuario_id: int):
     usuarios = leer_archivo(RUTA_USUARIOS)
@@ -100,6 +102,13 @@ def obtener_intervalo_datetime(fecha_reserva: date, hora_inicio: time, hora_fin:
         fin = fin + timedelta(days=1)
 
     return inicio, fin
+
+
+def obtener_fecha_hora_inicio(reserva: dict):
+    fecha_reserva = datetime.strptime(reserva["fecha"], "%Y-%m-%d").date()
+    hora_inicio = convertir_hora(reserva["hora_inicio"])
+
+    return datetime.combine(fecha_reserva, hora_inicio)
 
 
 def obtener_fecha_hora_fin(reserva: dict):
@@ -253,7 +262,6 @@ def validar_pago(datos_pago: PagoReservaRequest):
             status_code=400,
             detail="La tarjeta se encuentra vencida"
         )
-
 
     codigo = datos_pago.codigo_seguridad.strip()
 
@@ -437,6 +445,45 @@ def aplicar_datos_de_devolucion(reserva: dict):
         reserva["requiere_devolucion"] = False
         reserva["monto_devolucion"] = 0
         reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
+
+def aplicar_cancelacion_con_regla_reembolso(reserva: dict):
+    ahora = datetime.now()
+
+    reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
+    reserva["activa"] = False
+
+    if reserva["estado_pago"] != ESTADO_PAGO_PAGADO:
+        reserva["requiere_devolucion"] = False
+        reserva["monto_devolucion"] = 0
+        reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
+        return (
+            "Reserva cancelada correctamente. No corresponde devolución porque la seña no estaba pagada.",
+            "sin_pago"
+        )
+
+    fecha_hora_inicio = obtener_fecha_hora_inicio(reserva)
+    limite_reembolso = fecha_hora_inicio - timedelta(minutes=MINUTOS_MINIMOS_REEMBOLSO)
+
+    if ahora > limite_reembolso:
+        reserva["requiere_devolucion"] = False
+        reserva["monto_devolucion"] = 0
+        reserva["estado_devolucion"] = ESTADO_DEVOLUCION_NO_APLICA
+
+        return (
+            "Reserva cancelada correctamente. No se realizará reembolso de la seña porque la cancelación fue realizada con menos de 30 minutos de anticipación.",
+            "sin_reembolso"
+        )
+
+    reserva["requiere_devolucion"] = True
+    reserva["monto_devolucion"] = reserva.get("sena", 0)
+    reserva["estado_devolucion"] = ESTADO_DEVOLUCION_PENDIENTE
+
+    return (
+        "Reserva cancelada correctamente. Se generó una devolución pendiente por el monto de la seña.",
+        "con_reembolso"
+    )
 
 
 @router.post("/", response_model=ReservaResponse)
@@ -693,7 +740,7 @@ def modificar_reserva_admin(
             reserva["pagada"] = datos_reserva.estado_pago == ESTADO_PAGO_PAGADO
 
             if datos_reserva.estado_reserva == ESTADO_RESERVA_CANCELADA:
-                aplicar_datos_de_devolucion(reserva)
+                mensaje, tipo_reembolso = aplicar_cancelacion_con_regla_reembolso(reserva)
             else:
                 reserva["motivo_cancelacion"] = None
                 reserva["requiere_devolucion"] = False
@@ -829,16 +876,15 @@ def cancelar_reserva(
                     detail="No se puede cancelar una reserva finalizada"
                 )
 
-            reserva["estado_reserva"] = ESTADO_RESERVA_CANCELADA
-            reserva["activa"] = False
             reserva["motivo_cancelacion"] = datos.motivo_cancelacion
 
-            aplicar_datos_de_devolucion(reserva)
+            mensaje, tipo_reembolso = aplicar_cancelacion_con_regla_reembolso(reserva)
 
             guardar_archivo(RUTA_RESERVAS, reservas)
 
             return {
-                "mensaje": "Reserva cancelada correctamente",
+                "mensaje": mensaje,
+                "tipo_reembolso": tipo_reembolso,
                 "reserva": reserva
             }
 

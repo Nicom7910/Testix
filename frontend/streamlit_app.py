@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import time
 from datetime import date, datetime
 
 API_URL = "http://127.0.0.1:8000"
@@ -82,6 +83,31 @@ def ordenar_reservas_cliente(reservas, criterio_orden):
         key=convertir_fecha_hora_reserva,
         reverse=True
     )
+
+
+def mostrar_mensaje_cancelacion_y_esperar(respuesta):
+    datos_respuesta = respuesta.json()
+
+    mensaje = datos_respuesta.get(
+        "mensaje",
+        "Reserva cancelada correctamente"
+    )
+
+    tipo_reembolso = datos_respuesta.get("tipo_reembolso")
+
+    contenedor_mensaje = st.empty()
+
+    if tipo_reembolso == "sin_reembolso":
+        contenedor_mensaje.warning(mensaje)
+    elif tipo_reembolso == "con_reembolso":
+        contenedor_mensaje.success(mensaje)
+    elif tipo_reembolso == "sin_pago":
+        contenedor_mensaje.info(mensaje)
+    else:
+        contenedor_mensaje.success(mensaje)
+
+    time.sleep(5)
+    st.rerun()
 
 
 def login(email, password):
@@ -1038,8 +1064,7 @@ else:
                                         st.error("No se pudo conectar con el servidor")
                                     else:
                                         if respuesta.status_code == 200:
-                                            st.success("Reserva cancelada correctamente")
-                                            st.rerun()
+                                            mostrar_mensaje_cancelacion_y_esperar(respuesta)
                                         else:
                                             try:
                                                 st.error(respuesta.json()["detail"])
@@ -1084,8 +1109,7 @@ else:
                                         st.error("No se pudo conectar con el servidor")
                                     else:
                                         if respuesta.status_code == 200:
-                                            st.success("Reserva cancelada correctamente")
-                                            st.rerun()
+                                            mostrar_mensaje_cancelacion_y_esperar(respuesta)
                                         else:
                                             try:
                                                 st.error(respuesta.json()["detail"])
@@ -1151,8 +1175,7 @@ else:
                                 st.error("No se pudo conectar con el servidor")
                             else:
                                 if respuesta.status_code == 200:
-                                    st.success("Reserva cancelada correctamente")
-                                    st.rerun()
+                                    mostrar_mensaje_cancelacion_y_esperar(respuesta)
                                 else:
                                     try:
                                         st.error(respuesta.json()["detail"])
@@ -1335,8 +1358,7 @@ else:
                                 st.error("No se pudo conectar con el servidor")
                             else:
                                 if respuesta.status_code == 200:
-                                    st.success("Reserva cancelada correctamente")
-                                    st.rerun()
+                                    mostrar_mensaje_cancelacion_y_esperar(respuesta)
                                 else:
                                     try:
                                         st.error(respuesta.json()["detail"])
