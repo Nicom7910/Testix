@@ -4,3 +4,7 @@ pydantic
 email-validator
 streamlit
 requests
+sqlalchemy
+pytest
+httpx
+pytest-cov

@@ -1,46 +1,42 @@
-# =========================
+
 # ENTORNO VIRTUAL
-# =========================
 venv/
 .env/
 
-# =========================
 # PYTHON
-# =========================
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# =========================
 # VSCODE
-# =========================
 .vscode/
 
-# =========================
 # STREAMLIT
-# =========================
 .streamlit/
 
-# =========================
 # ARCHIVOS DEL SISTEMA
-# =========================
 .DS_Store
 Thumbs.db
 
-# =========================
 # CACHE / TESTS
-# =========================
 .pytest_cache/
 .coverage
 
-# =========================
 # BASES / ARCHIVOS LOCALES
-# =========================
 *.db
 *.sqlite3
 
-# =========================
 # LOGS
-# =========================
 *.log
+
+# Logs generados por el sistema
+logs/*.log
+logs/*.log.*
+
+# Evidencias generadas localmente
+htmlcov/
+.coverage
+.pytest_cache/
+__pycache__/
+*.pyc
