@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException, Query
 from datetime import date, datetime
 
 from app.utils.file_manager import leer_archivo
+from app.utils.logger import logger
+
 
 router = APIRouter(
     prefix="/reportes",
@@ -25,24 +27,34 @@ ESTADO_PAGO_RECHAZADO = "rechazado"
 
 
 def validar_administrador(admin_id: int):
+    logger.info(f"Validando administrador para reportes | admin_id={admin_id}")
+
     usuarios = leer_archivo(RUTA_USUARIOS)
 
     for usuario in usuarios:
         if usuario["id"] == admin_id:
             if usuario.get("activo", True) != True:
+                logger.warning(
+                    f"Reporte rechazado: administrador dado de baja | admin_id={admin_id}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="El usuario administrador está dado de baja"
                 )
 
             if usuario.get("rol") != ROL_ADMINISTRADOR:
+                logger.warning(
+                    f"Reporte rechazado: usuario sin permisos administrativos | usuario_id={admin_id} | rol={usuario.get('rol')}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="No tiene permisos de administrador"
                 )
 
+            logger.info(f"Administrador validado para reportes | admin_id={admin_id}")
             return usuario
 
+    logger.warning(f"Reporte rechazado: administrador no encontrado | admin_id={admin_id}")
     raise HTTPException(
         status_code=404,
         detail="Administrador no encontrado"
@@ -65,6 +77,9 @@ def calcular_cantidad_horas(hora_inicio: str, hora_fin: str):
     inicio_datetime = datetime.combine(fecha_base, inicio)
     fin_datetime = datetime.combine(fecha_base, fin)
 
+    if fin <= inicio:
+        fin_datetime = fin_datetime.replace(day=fin_datetime.day + 1)
+
     diferencia = fin_datetime - inicio_datetime
 
     return diferencia.total_seconds() / 3600
@@ -75,6 +90,7 @@ def obtener_nombre_cancha(cancha_id: int, canchas: list):
         if cancha["id"] == cancha_id:
             return cancha["nombre"]
 
+    logger.warning(f"Reporte: cancha no encontrada al armar detalle | cancha_id={cancha_id}")
     return f"Cancha {cancha_id}"
 
 
@@ -92,6 +108,7 @@ def obtener_cliente(usuario_id: int, usuarios: list):
 
             return nombre_completo
 
+    logger.warning(f"Reporte: usuario no encontrado al armar detalle | usuario_id={usuario_id}")
     return f"Usuario {usuario_id}"
 
 
@@ -127,6 +144,10 @@ def filtrar_reservas_por_periodo(
     fecha_desde: date | None,
     fecha_hasta: date | None
 ):
+    logger.info(
+        f"Filtrando reservas para reporte | fecha_desde={fecha_desde} | fecha_hasta={fecha_hasta}"
+    )
+
     reservas_filtradas = []
 
     for reserva in reservas:
@@ -135,7 +156,10 @@ def filtrar_reservas_por_periodo(
                 reserva["fecha"],
                 "%Y-%m-%d"
             ).date()
-        except Exception:
+        except Exception as error:
+            logger.error(
+                f"Reporte: reserva omitida por fecha invalida | reserva_id={reserva.get('id')} | fecha={reserva.get('fecha')} | error={str(error)}"
+            )
             continue
 
         if fecha_desde is not None and fecha_reserva < fecha_desde:
@@ -146,6 +170,10 @@ def filtrar_reservas_por_periodo(
 
         reservas_filtradas.append(reserva)
 
+    logger.info(
+        f"Filtro de reporte aplicado | reservas_filtradas={len(reservas_filtradas)}"
+    )
+
     return reservas_filtradas
 
 
@@ -155,6 +183,10 @@ def obtener_reporte_general(
     fecha_desde: date | None = Query(default=None),
     fecha_hasta: date | None = Query(default=None)
 ):
+    logger.info(
+        f"Solicitud de reporte general | admin_id={admin_id} | fecha_desde={fecha_desde} | fecha_hasta={fecha_hasta}"
+    )
+
     validar_administrador(admin_id)
 
     if (
@@ -162,6 +194,9 @@ def obtener_reporte_general(
         and fecha_hasta is not None
         and fecha_desde > fecha_hasta
     ):
+        logger.warning(
+            f"Reporte rechazado: fecha desde mayor a fecha hasta | admin_id={admin_id} | fecha_desde={fecha_desde} | fecha_hasta={fecha_hasta}"
+        )
         raise HTTPException(
             status_code=400,
             detail="La fecha desde no puede ser mayor a la fecha hasta"
@@ -170,6 +205,10 @@ def obtener_reporte_general(
     reservas = leer_archivo(RUTA_RESERVAS)
     canchas = leer_archivo(RUTA_CANCHAS)
     usuarios = leer_archivo(RUTA_USUARIOS)
+
+    logger.info(
+        f"Datos cargados para reporte | reservas={len(reservas)} | canchas={len(canchas)} | usuarios={len(usuarios)}"
+    )
 
     reservas_normalizadas = []
 
@@ -200,8 +239,10 @@ def obtener_reporte_general(
     ingresos_estimados = 0
     ingresos_cobrados = 0
     ingresos_potenciales = 0
+
     senas_cobradas = 0
     senas_pendientes = 0
+
     monto_devoluciones_pendientes = 0
 
     ocupacion_por_cancha = {}
@@ -249,9 +290,17 @@ def obtener_reporte_general(
 
         if estado_reserva in reservas_por_estado:
             reservas_por_estado[estado_reserva] += 1
+        else:
+            logger.warning(
+                f"Reporte: estado de reserva desconocido | reserva_id={reserva.get('id')} | estado={estado_reserva}"
+            )
 
         if estado_pago in pagos_por_estado:
             pagos_por_estado[estado_pago] += 1
+        else:
+            logger.warning(
+                f"Reporte: estado de pago desconocido | reserva_id={reserva.get('id')} | estado_pago={estado_pago}"
+            )
 
         reserva_cancelada = estado_reserva == ESTADO_RESERVA_CANCELADA
         reserva_pagada = estado_pago == ESTADO_PAGO_PAGADO
@@ -294,7 +343,10 @@ def obtener_reporte_general(
                     reserva["hora_inicio"],
                     reserva["hora_fin"]
                 )
-            except Exception:
+            except Exception as error:
+                logger.error(
+                    f"Reporte: no se pudieron calcular horas | reserva_id={reserva.get('id')} | error={str(error)}"
+                )
                 horas_reservadas = reserva.get("cantidad_horas", 0)
 
             ocupacion_por_cancha[cancha_id]["horas_reservadas"] += horas_reservadas
@@ -316,14 +368,12 @@ def obtener_reporte_general(
             horarios_solicitados[hora_inicio]["cantidad_reservas"] += 1
 
     ocupacion_lista = list(ocupacion_por_cancha.values())
-
     ocupacion_lista.sort(
         key=lambda item: item["cantidad_reservas"],
         reverse=True
     )
 
     horarios_lista = list(horarios_solicitados.values())
-
     horarios_lista.sort(
         key=lambda item: item["cantidad_reservas"],
         reverse=True
@@ -339,9 +389,12 @@ def obtener_reporte_general(
 
     if total_reservas > 0:
         porcentaje_cancelacion = (
-            reservas_por_estado[ESTADO_RESERVA_CANCELADA]
-            / total_reservas
+            reservas_por_estado[ESTADO_RESERVA_CANCELADA] / total_reservas
         ) * 100
+
+    logger.info(
+        f"Reporte general generado correctamente | admin_id={admin_id} | total_reservas={total_reservas} | ingresos_cobrados={round(ingresos_cobrados, 2)} | porcentaje_cancelacion={round(porcentaje_cancelacion, 2)}"
+    )
 
     return {
         "periodo": {
