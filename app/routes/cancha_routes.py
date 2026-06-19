@@ -1,8 +1,18 @@
 from fastapi import APIRouter, HTTPException, Query
 from datetime import date, time, datetime, timedelta
 
-from app.schemas.cancha_schema import CanchaCreate, CanchaUpdate, CanchaResponse
-from app.utils.file_manager import leer_archivo, guardar_archivo, obtener_siguiente_id
+from app.schemas.cancha_schema import (
+    CanchaCreate,
+    CanchaUpdate,
+    CanchaResponse
+)
+from app.utils.file_manager import (
+    leer_archivo,
+    guardar_archivo,
+    obtener_siguiente_id
+)
+from app.utils.logger import logger
+
 
 router = APIRouter(
     prefix="/canchas",
@@ -26,24 +36,34 @@ HORA_MEDIANOCHE = time(0, 0)
 
 
 def validar_administrador(admin_id: int):
+    logger.info(f"Validando permisos de administrador para canchas | admin_id={admin_id}")
+
     usuarios = leer_archivo(RUTA_USUARIOS)
 
     for usuario in usuarios:
         if usuario["id"] == admin_id:
             if usuario.get("activo", True) != True:
+                logger.warning(
+                    f"Accion de cancha rechazada: administrador dado de baja | admin_id={admin_id}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="El usuario administrador está dado de baja"
                 )
 
             if usuario.get("rol") != ROL_ADMINISTRADOR:
+                logger.warning(
+                    f"Accion de cancha rechazada: usuario sin rol administrador | usuario_id={admin_id} | rol={usuario.get('rol')}"
+                )
                 raise HTTPException(
                     status_code=403,
                     detail="No tiene permisos de administrador"
                 )
 
+            logger.info(f"Administrador validado para canchas | admin_id={admin_id}")
             return usuario
 
+    logger.warning(f"Administrador no encontrado para accion de cancha | admin_id={admin_id}")
     raise HTTPException(
         status_code=404,
         detail="Administrador no encontrado"
@@ -89,6 +109,9 @@ def normalizar_canchas(canchas: list):
 
         if cancha != original:
             hubo_cambios = True
+            logger.info(
+                f"Cancha normalizada por campos faltantes | cancha_id={cancha.get('id')}"
+            )
 
     return hubo_cambios
 
@@ -104,16 +127,26 @@ def obtener_intervalo_datetime(fecha_reserva: date, hora_inicio: time, hora_fin:
 
 
 def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: time):
+    logger.info(
+        f"Validando fecha y horario para disponibilidad | fecha={fecha_reserva} | hora_inicio={hora_inicio} | hora_fin={hora_fin}"
+    )
+
     ahora = datetime.now()
     hoy = ahora.date()
 
     if fecha_reserva < hoy:
+        logger.warning(
+            f"Consulta rechazada: fecha anterior a la actual | fecha={fecha_reserva} | hoy={hoy}"
+        )
         raise HTTPException(
             status_code=400,
             detail="No se pueden consultar ni reservar fechas anteriores a la actual"
         )
 
     if hora_inicio < HORA_APERTURA or hora_inicio > HORA_CIERRE:
+        logger.warning(
+            f"Consulta rechazada: hora de inicio fuera de rango | hora_inicio={hora_inicio}"
+        )
         raise HTTPException(
             status_code=400,
             detail="La hora de inicio debe estar entre 08:00 y 23:00"
@@ -121,12 +154,18 @@ def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: ti
 
     if hora_fin != HORA_MEDIANOCHE:
         if hora_fin <= hora_inicio:
+            logger.warning(
+                f"Consulta rechazada: hora fin menor o igual a inicio | hora_inicio={hora_inicio} | hora_fin={hora_fin}"
+            )
             raise HTTPException(
                 status_code=400,
                 detail="La hora de fin debe ser mayor a la hora de inicio, excepto si finaliza a las 00:00"
             )
 
         if hora_fin > HORA_CIERRE:
+            logger.warning(
+                f"Consulta rechazada: hora fin fuera de rango | hora_fin={hora_fin}"
+            )
             raise HTTPException(
                 status_code=400,
                 detail="La hora de fin debe ser hasta las 23:00 o 00:00"
@@ -139,6 +178,9 @@ def validar_fecha_y_horario(fecha_reserva: date, hora_inicio: time, hora_fin: ti
     )
 
     if inicio_reserva <= ahora:
+        logger.warning(
+            f"Consulta rechazada: horario anterior al momento actual | inicio_reserva={inicio_reserva} | ahora={ahora}"
+        )
         raise HTTPException(
             status_code=400,
             detail="No se pueden consultar ni reservar horarios anteriores al momento actual"
@@ -159,11 +201,18 @@ def crear_cancha(
     cancha: CanchaCreate,
     admin_id: int = Query(...)
 ):
+    logger.info(
+        f"Intento de crear cancha | admin_id={admin_id} | nombre={cancha.nombre} | tipo={cancha.tipo_superficie}"
+    )
+
     validar_administrador(admin_id)
 
     canchas = leer_archivo(RUTA_CANCHAS)
 
     if cancha.precio_por_hora <= 0:
+        logger.warning(
+            f"Alta de cancha rechazada: precio por hora invalido | precio={cancha.precio_por_hora}"
+        )
         raise HTTPException(
             status_code=400,
             detail="El precio por hora debe ser mayor a 0"
@@ -179,6 +228,9 @@ def crear_cancha(
         precio_nocturno = round(cancha.precio_por_hora * 1.2, 2)
 
     if precio_diurno <= 0 or precio_nocturno <= 0:
+        logger.warning(
+            f"Alta de cancha rechazada: precios invalidos | diurno={precio_diurno} | nocturno={precio_nocturno}"
+        )
         raise HTTPException(
             status_code=400,
             detail="Los precios diurno y nocturno deben ser mayores a 0"
@@ -198,15 +250,24 @@ def crear_cancha(
     canchas.append(nueva_cancha)
     guardar_archivo(RUTA_CANCHAS, canchas)
 
+    logger.info(
+        f"Cancha creada correctamente | cancha_id={nueva_cancha['id']} | admin_id={admin_id} | precio={cancha.precio_por_hora}"
+    )
+
     return nueva_cancha
 
 
 @router.get("/", response_model=list[CanchaResponse])
 def listar_canchas():
+    logger.info("Solicitud de listado de canchas")
+
     canchas = leer_archivo(RUTA_CANCHAS)
 
     if normalizar_canchas(canchas):
         guardar_archivo(RUTA_CANCHAS, canchas)
+        logger.info("Listado de canchas normalizado y guardado")
+
+    logger.info(f"Listado de canchas generado | cantidad={len(canchas)}")
 
     return canchas
 
@@ -217,6 +278,10 @@ def listar_canchas_disponibles(
     hora_inicio: time | None = Query(default=None),
     hora_fin: time | None = Query(default=None)
 ):
+    logger.info(
+        f"Solicitud de canchas disponibles | fecha={fecha} | hora_inicio={hora_inicio} | hora_fin={hora_fin}"
+    )
+
     canchas = leer_archivo(RUTA_CANCHAS)
     reservas = leer_archivo(RUTA_RESERVAS)
 
@@ -224,7 +289,16 @@ def listar_canchas_disponibles(
         guardar_archivo(RUTA_CANCHAS, canchas)
 
     if fecha is None or hora_inicio is None or hora_fin is None:
-        return [cancha for cancha in canchas if cancha["activa"] == True]
+        disponibles = [
+            cancha for cancha in canchas
+            if cancha["activa"] == True
+        ]
+
+        logger.info(
+            f"Canchas activas listadas sin filtro horario | cantidad={len(disponibles)}"
+        )
+
+        return disponibles
 
     validar_fecha_y_horario(fecha, hora_inicio, hora_fin)
 
@@ -238,6 +312,9 @@ def listar_canchas_disponibles(
 
     for cancha in canchas:
         if cancha["activa"] != True:
+            logger.info(
+                f"Cancha omitida por estar inactiva | cancha_id={cancha.get('id')}"
+            )
             continue
 
         cancha_ocupada = False
@@ -271,16 +348,25 @@ def listar_canchas_disponibles(
                     fin_existente
                 ):
                     cancha_ocupada = True
+                    logger.info(
+                        f"Cancha no disponible por superposicion | cancha_id={cancha['id']} | reserva_id={reserva.get('id')} | fecha={fecha}"
+                    )
                     break
 
         if cancha_ocupada == False:
             disponibles.append(cancha)
+
+    logger.info(
+        f"Consulta de disponibilidad finalizada | fecha={fecha} | cantidad_disponible={len(disponibles)}"
+    )
 
     return disponibles
 
 
 @router.get("/{cancha_id}", response_model=CanchaResponse)
 def obtener_cancha(cancha_id: int):
+    logger.info(f"Solicitud de detalle de cancha | cancha_id={cancha_id}")
+
     canchas = leer_archivo(RUTA_CANCHAS)
 
     if normalizar_canchas(canchas):
@@ -288,8 +374,10 @@ def obtener_cancha(cancha_id: int):
 
     for cancha in canchas:
         if cancha["id"] == cancha_id:
+            logger.info(f"Cancha encontrada | cancha_id={cancha_id}")
             return cancha
 
+    logger.warning(f"Cancha no encontrada | cancha_id={cancha_id}")
     raise HTTPException(status_code=404, detail="Cancha no encontrada")
 
 
@@ -299,23 +387,36 @@ def modificar_cancha(
     datos_cancha: CanchaUpdate,
     admin_id: int = Query(...)
 ):
+    logger.info(
+        f"Intento de modificar cancha | cancha_id={cancha_id} | admin_id={admin_id}"
+    )
+
     validar_administrador(admin_id)
 
     canchas = leer_archivo(RUTA_CANCHAS)
 
     if datos_cancha.nombre.strip() == "":
+        logger.warning(
+            f"Modificacion de cancha rechazada: nombre vacio | cancha_id={cancha_id}"
+        )
         raise HTTPException(
             status_code=400,
             detail="El nombre de la cancha es obligatorio"
         )
 
     if datos_cancha.tipo_superficie.strip() == "":
+        logger.warning(
+            f"Modificacion de cancha rechazada: tipo de superficie vacio | cancha_id={cancha_id}"
+        )
         raise HTTPException(
             status_code=400,
             detail="El tipo de superficie es obligatorio"
         )
 
     if datos_cancha.precio_por_hora <= 0:
+        logger.warning(
+            f"Modificacion de cancha rechazada: precio por hora invalido | cancha_id={cancha_id} | precio={datos_cancha.precio_por_hora}"
+        )
         raise HTTPException(
             status_code=400,
             detail="El precio por hora debe ser mayor a 0"
@@ -331,6 +432,9 @@ def modificar_cancha(
         precio_nocturno = round(datos_cancha.precio_por_hora * 1.2, 2)
 
     if precio_diurno <= 0 or precio_nocturno <= 0:
+        logger.warning(
+            f"Modificacion de cancha rechazada: precios invalidos | cancha_id={cancha_id} | diurno={precio_diurno} | nocturno={precio_nocturno}"
+        )
         raise HTTPException(
             status_code=400,
             detail="Los precios diurno y nocturno deben ser mayores a 0"
@@ -347,8 +451,16 @@ def modificar_cancha(
             cancha["activa"] = datos_cancha.activa
 
             guardar_archivo(RUTA_CANCHAS, canchas)
+
+            logger.info(
+                f"Cancha modificada correctamente | cancha_id={cancha_id} | admin_id={admin_id} | activa={datos_cancha.activa}"
+            )
+
             return cancha
 
+    logger.warning(
+        f"Modificacion de cancha rechazada: cancha no encontrada | cancha_id={cancha_id}"
+    )
     raise HTTPException(status_code=404, detail="Cancha no encontrada")
 
 
@@ -357,6 +469,10 @@ def dar_baja_cancha(
     cancha_id: int,
     admin_id: int = Query(...)
 ):
+    logger.info(
+        f"Intento de baja de cancha | cancha_id={cancha_id} | admin_id={admin_id}"
+    )
+
     validar_administrador(admin_id)
 
     canchas = leer_archivo(RUTA_CANCHAS)
@@ -364,13 +480,21 @@ def dar_baja_cancha(
     for cancha in canchas:
         if cancha["id"] == cancha_id:
             cancha["activa"] = False
+
             guardar_archivo(RUTA_CANCHAS, canchas)
+
+            logger.info(
+                f"Cancha dada de baja correctamente | cancha_id={cancha_id} | admin_id={admin_id}"
+            )
 
             return {
                 "mensaje": "Cancha dada de baja correctamente",
                 "cancha": cancha
             }
 
+    logger.warning(
+        f"Baja de cancha rechazada: cancha no encontrada | cancha_id={cancha_id}"
+    )
     raise HTTPException(status_code=404, detail="Cancha no encontrada")
 
 
@@ -382,11 +506,18 @@ def modificar_precio_cancha(
     precio_nocturno: float | None = Query(default=None),
     admin_id: int = Query(...)
 ):
+    logger.info(
+        f"Intento de modificar precio de cancha | cancha_id={cancha_id} | admin_id={admin_id} | precio_por_hora={precio_por_hora}"
+    )
+
     validar_administrador(admin_id)
 
     canchas = leer_archivo(RUTA_CANCHAS)
 
     if precio_por_hora <= 0:
+        logger.warning(
+            f"Modificacion de precio rechazada: precio por hora invalido | cancha_id={cancha_id} | precio={precio_por_hora}"
+        )
         raise HTTPException(
             status_code=400,
             detail="El precio por hora debe ser mayor a 0"
@@ -399,6 +530,9 @@ def modificar_precio_cancha(
         precio_nocturno = round(precio_por_hora * 1.2, 2)
 
     if precio_diurno <= 0 or precio_nocturno <= 0:
+        logger.warning(
+            f"Modificacion de precio rechazada: precios invalidos | cancha_id={cancha_id} | diurno={precio_diurno} | nocturno={precio_nocturno}"
+        )
         raise HTTPException(
             status_code=400,
             detail="Los precios diurno y nocturno deben ser mayores a 0"
@@ -412,9 +546,16 @@ def modificar_precio_cancha(
 
             guardar_archivo(RUTA_CANCHAS, canchas)
 
+            logger.info(
+                f"Precio de cancha actualizado correctamente | cancha_id={cancha_id} | admin_id={admin_id} | precio_por_hora={precio_por_hora} | precio_diurno={precio_diurno} | precio_nocturno={precio_nocturno}"
+            )
+
             return {
                 "mensaje": "Precios actualizados correctamente",
                 "cancha": cancha
             }
 
+    logger.warning(
+        f"Modificacion de precio rechazada: cancha no encontrada | cancha_id={cancha_id}"
+    )
     raise HTTPException(status_code=404, detail="Cancha no encontrada")
