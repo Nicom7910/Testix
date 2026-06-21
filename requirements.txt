@@ -8,3 +8,5 @@ sqlalchemy
 pytest
 httpx
 pytest-cov
+selenium
+webdriver-manager
