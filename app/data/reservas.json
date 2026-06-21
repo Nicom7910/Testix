@@ -398,5 +398,25 @@
         "requiere_devolucion": false,
         "monto_devolucion": 0,
         "estado_devolucion": "no_aplica"
+    },
+    {
+        "id": 23,
+        "usuario_id": 2,
+        "cancha_id": 2,
+        "fecha": "2026-06-20",
+        "hora_inicio": "17:00:00",
+        "hora_fin": "18:30:00",
+        "cantidad_horas": 1.5,
+        "monto_total": 64000.0,
+        "sena": 32000.0,
+        "estado_reserva": "confirmada",
+        "estado_pago": "pagado",
+        "activa": true,
+        "pagada": true,
+        "motivo_cancelacion": null,
+        "fecha_creacion": "2026-06-19 19:52:38",
+        "requiere_devolucion": false,
+        "monto_devolucion": 0,
+        "estado_devolucion": "no_aplica"
     }
 ]
