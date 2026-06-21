@@ -3,6 +3,7 @@ import os
 import shutil
 import pytest
 from fastapi.testclient import TestClient
+from datetime import datetime
 import sys
 from pathlib import Path
 
@@ -174,7 +175,7 @@ def cargar_datos_de_prueba():
             "activa": False,
             "pagada": False,
             "motivo_cancelacion": None,
-            "fecha_creacion": "2026-06-19 10:00:00",
+            "fecha_creacion": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "requiere_devolucion": False,
             "monto_devolucion": 0,
             "estado_devolucion": "no_aplica"
