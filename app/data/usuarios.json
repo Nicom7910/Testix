@@ -38,5 +38,45 @@
         "password": "pbkdf2_sha256$03a758432453f4be619a9c9db2b10056$b523de6808696e40c0f8c257121928e67858c7cf504a2e477b11d67f23802b98",
         "rol": "COMUN",
         "activo": true
+    },
+    {
+        "id": 5,
+        "nombre": "Selenium",
+        "apellido": "Test",
+        "email": "selenium_20260621162434@email.com",
+        "telefono": "1134567890",
+        "password": "pbkdf2_sha256$f3c5fb25b4155d9cb34af91e232d7e06$66da0bc74ddb9e285826d71fa8fb5d6ff2af66861952cd965a541f8cabd5c975",
+        "rol": "COMUN",
+        "activo": true
+    },
+    {
+        "id": 6,
+        "nombre": "Selenium",
+        "apellido": "Test",
+        "email": "selenium_20260621162819@email.com",
+        "telefono": "1134567890",
+        "password": "pbkdf2_sha256$0ffceb193e73c382c6495c70a52d5224$43fc5e22177e272170ced850644521e502d0a0d39613310bc5649df94c3a66c6",
+        "rol": "COMUN",
+        "activo": true
+    },
+    {
+        "id": 7,
+        "nombre": "Selenium",
+        "apellido": "Test",
+        "email": "selenium_20260621162947@email.com",
+        "telefono": "1134567890",
+        "password": "pbkdf2_sha256$e130fdb90f861bc14e054aec6f034a50$0cdecd92b8c8df153c60247ad3c924fabe9a7c34143c6abba54227789192f6c4",
+        "rol": "COMUN",
+        "activo": true
+    },
+    {
+        "id": 8,
+        "nombre": "Selenium",
+        "apellido": "Test",
+        "email": "selenium_20260621163506@email.com",
+        "telefono": "1134567890",
+        "password": "pbkdf2_sha256$bfd8bf9d79e96af0c67d216e608acb83$9a17c2282752da94df09deba615f098683af68b90eae414904b9828a32d712fc",
+        "rol": "COMUN",
+        "activo": true
     }
 ]

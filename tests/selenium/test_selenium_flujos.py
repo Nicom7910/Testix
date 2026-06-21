@@ -13,9 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 
-# ============================================================
 # CONFIGURACIÓN GENERAL
-# ============================================================
 
 BASE_URL = os.getenv("SELENIUM_BASE_URL", "http://localhost:8501")
 EVIDENCIA_DIR = os.getenv("SELENIUM_EVIDENCIA_DIR", "evidencias/selenium")
@@ -28,9 +26,7 @@ EMAIL_ADMIN = os.getenv("SELENIUM_EMAIL_ADMIN", "admin@email.com")
 PASSWORD_ADMIN = os.getenv("SELENIUM_PASSWORD_ADMIN", "1234")
 
 
-# ============================================================
 # HELPERS GENERALES
-# ============================================================
 
 def crear_directorio_evidencia():
     os.makedirs(EVIDENCIA_DIR, exist_ok=True)
@@ -145,9 +141,7 @@ def abrir_app(driver):
     esperar_carga_streamlit(driver)
 
 
-# ============================================================
 # HELPERS DE INPUTS STREAMLIT
-# ============================================================
 
 def es_input_interactuable(driver, elemento):
     """
@@ -362,9 +356,7 @@ def realizar_login(driver, email, password):
     time.sleep(2)
 
 
-# ============================================================
 # TEST 1 - CP01 LOGIN CLIENTE VÁLIDO
-# ============================================================
 
 def test_cp01_login_cliente_valido(driver):
     """
@@ -394,9 +386,7 @@ def test_cp01_login_cliente_valido(driver):
         raise
 
 
-# ============================================================
 # TEST 2 - CP03 LOGIN ADMINISTRADOR VÁLIDO
-# ============================================================
 
 def test_cp03_login_administrador_valido(driver):
     """
@@ -428,9 +418,7 @@ def test_cp03_login_administrador_valido(driver):
         raise
 
 
-# ============================================================
 # TEST 3 - CP05 REGISTRO DE USUARIO VÁLIDO
-# ============================================================
 
 def test_cp05_registro_usuario_valido(driver):
     """
